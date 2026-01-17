@@ -24,9 +24,12 @@ class ICLGenerator(BaseSQLGenerator):
         if sampling_budget == 0:
             return [], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
-        database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
+        # Get enhanced database schema profile (includes schema_metadata and join_relationships)
+        database_schema_profile = PromptFactory.get_enhanced_database_schema_profile(data_item)
         few_shot_examples = self._few_shot_examples[str(data_item.question_id)]
-        prompt = PromptFactory.format_icl_sql_generation_prompt(few_shot_examples, database_schema_profile, data_item.question, data_item.evidence).strip()
+        # Get SQL guidance (low confidence reference material)
+        sql_guidance = PromptFactory.get_sql_guidance(data_item)
+        prompt = PromptFactory.format_icl_sql_generation_prompt(few_shot_examples, database_schema_profile, data_item.question, data_item.evidence, sql_guidance).strip()
         
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         all_sql_candidates = []

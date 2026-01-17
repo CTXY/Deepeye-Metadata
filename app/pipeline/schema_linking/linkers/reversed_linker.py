@@ -21,17 +21,29 @@ class ReversedLinker(BaseSchemaLinker):
         with open(few_shot_examples_path, "r") as f:
             self._few_shot_examples = json.load(f)
     
-    def link(self, data_item: DataItem, llm: LLM, sampling_budget: int = 1) -> tuple[Dict[str, List[str]], Dict[str, int]]:
+    def link(
+        self, 
+        data_item: DataItem, 
+        llm: LLM, 
+        sampling_budget: int = 1,
+        schema_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
+        join_relationships: Optional[List[Dict[str, Any]]] = None
+    ) -> tuple[Dict[str, List[str]], Dict[str, int], List[str]]:
         if sampling_budget == 0:
-            return {}, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            return {}, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, []
         
-        database_schema_profile = get_database_schema_profile(data_item.database_schema_after_value_retrieval)
+        database_schema_profile = get_database_schema_profile(
+            data_item.database_schema_after_value_retrieval,
+            schema_metadata=schema_metadata,
+            join_relationships=join_relationships
+        )
         few_shot_examples = self._few_shot_examples[str(data_item.question_id)]
         # prompt = PromptFactory.format_dc_sql_generation_prompt(database_schema_profile, data_item.question, data_item.evidence).strip()
         prompt = PromptFactory.format_icl_sql_generation_prompt(few_shot_examples, database_schema_profile, data_item.question, data_item.evidence).strip()
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
         all_selections = []
+        sql_candidates = []  # Store the generated SQL candidates
         while len(all_selections) < sampling_budget:
             responses, token_usage = llm.ask([{"role": "user", "content": prompt}], n=sampling_budget - len(all_selections), stop=["</result>"])
             for response in responses:
@@ -40,6 +52,7 @@ class ReversedLinker(BaseSchemaLinker):
                 try:
                     parsed_sql_candidate = self._parse_llm_response(response)
                     if parsed_sql_candidate:
+                        sql_candidates.append(parsed_sql_candidate)  # Save the SQL
                         all_selections.append(self._extract_tables_and_columns(parsed_sql_candidate, data_item.database_schema_after_value_retrieval))
                 except Exception as e:
                     logger.error(f"Error parsing LLM response: {e}")
@@ -48,7 +61,7 @@ class ReversedLinker(BaseSchemaLinker):
             total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
             total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
             total_token_usage["total_tokens"] += token_usage["total_tokens"]
-        return merge_schema_linking_results(all_selections), total_token_usage
+        return merge_schema_linking_results(all_selections), total_token_usage, sql_candidates
     
     def _parse_llm_response(self, response: str) -> Optional[Dict[str, List[str]]]:
         # restore the stop token: </result>

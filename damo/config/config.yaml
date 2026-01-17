@@ -1,0 +1,40 @@
+# Example configuration for NL2SQL reasoning module
+
+# Core reasoning mode
+mode: "llm_only"  # Options: "llm_only", "finetuned", "hybrid"
+
+
+llm:
+  provider: "openai"         # Provider: "openai", "anthropic"
+  model_name: "gpt-4o"     # 使用小模型降低成本，CAF系统会根据复杂度自动路由到合适的模型
+  api_key: "sk-6F6WwG6R2FW7Mvq12889E46c67B04d549bE13f7465F212Ba"              # API key (or set OPENAI_API_KEY environment variable)
+  base_url: "https://vip.yi-zhan.top/v1"             # Custom base URL for API (null = use default)
+  max_tokens: 2048           # Maximum tokens for generation
+  temperature: 0.0           # Temperature for generation
+  timeout: 30                # Request timeout in seconds
+
+# Data configuration
+data:
+  bird_data_path: "/home/yangchenyu/Text2SQL/datasets/bird"  # Path to BIRD dataset
+  cache_dir: "/home/yangchenyu/Text2SQL/cache"               # Cache directory
+  use_cache: true                                            # Whether to use cache
+  use_database_description: false                           # Whether to include database description files
+
+# SQL execution and evaluation
+evaluation:
+  timeout: 30.0              # SQL execution timeout (seconds)
+  num_cpus: 1                # Number of CPUs for parallel execution
+  enable_execution: true     # Whether to execute generated SQL
+
+# CAF integration configuration
+caf:
+  enabled: true              # Whether to use CAF cognitive basis
+  config_path: "/home/yangchenyu/DeepEye-SQL-Metadata/damo/config/caf_config.yaml"          # Path to CAF config file for LLM feedback (relative to this config file)
+  memory_types:              # Memory types to query
+    - "semantic"             # Schema and domain knowledge
+    - "episodic"             # Historical interaction records
+  feedback_enabled: false     # Whether to collect user feedback
+
+# Logging configuration
+log_level: "INFO"            # Log level: DEBUG, INFO, WARNING, ERROR
+log_file: null               # Log file path (null = console only)

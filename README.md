@@ -16,11 +16,12 @@ Symph-SQL/
 │   ├── llm/               # Large language model interface
 │   ├── logger/            # Logging utilities
 │   ├── pipeline/          # Processing pipeline
-│   │   ├── value_retrieval/    # Value retrieval
-│   │   ├── schema_linking/     # Schema linking
-│   │   ├── sql_generation/     # SQL generation
-│   │   ├── sql_revision/       # SQL revision
-│   │   └── sql_selection/      # SQL selection
+│   │   ├── value_retrieval/         # Value retrieval
+│   │   ├── schema_linking/          # Schema linking
+│   │   ├── augmented_data_retrieval/ # Augmented data retrieval (encoding mappings, schema metadata, guidance)
+│   │   ├── sql_generation/          # SQL generation
+│   │   ├── sql_revision/            # SQL revision
+│   │   └── sql_selection/           # SQL selection
 │   ├── vector_db/         # Vector database
 │   └── prompt/            # Prompt templates
 ├── config/                # Configuration files
@@ -153,25 +154,31 @@ uv run runner/run_value_retrieval.py
 uv run runner/run_schema_linking.py
 ```
 
-#### 5. SQL Generation
+#### 5. Augmented Data Retrieval
+
+```bash
+uv run runner/run_augmented_data_retrieval.py
+```
+
+#### 6. SQL Generation
 
 ```bash
 uv run runner/run_sql_generation.py
 ```
 
-#### 6. SQL Revision
+#### 7. SQL Revision
 
 ```bash
 uv run runner/run_sql_revision.py
 ```
 
-#### 7. SQL Selection
+#### 8. SQL Selection
 
 ```bash
 uv run runner/run_sql_selection.py
 ```
 
-#### 8. Convert Result File
+#### 9. Convert Result File
 
 Convert the final SQL selection results to a readable JSON format:
 
@@ -179,7 +186,7 @@ Convert the final SQL selection results to a readable JSON format:
 uv run runner/convert_pkl_to_sql_file.py
 ```
 
-#### 9. Run Evaluation
+#### 10. Run Evaluation
 
 Evaluate the generated SQL statements against the ground truth:
 
@@ -193,14 +200,15 @@ After completion, results will be saved in the `workspace/` directory:
 
 ```
 workspace/
-├── dataset/               # Preprocessed datasets
-├── vector_database/       # Vector databases
-├── value_retrieval/       # Value retrieval results
-├── schema_linking/        # Schema linking results
-├── sql_generation/        # SQL generation results
-├── sql_revision/          # SQL revision results
-├── sql_selection/         # SQL selection results
-└── logs/                  # Log files
+├── dataset/                    # Preprocessed datasets
+├── vector_database/            # Vector databases
+├── value_retrieval/            # Value retrieval results
+├── schema_linking/             # Schema linking results
+├── augmented_data_retrieval/   # Augmented data retrieval results
+├── sql_generation/             # SQL generation results
+├── sql_revision/               # SQL revision results
+├── sql_selection/              # SQL selection results
+└── logs/                       # Log files
 ```
 
 ### Performance Results

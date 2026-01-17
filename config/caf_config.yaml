@@ -1,0 +1,142 @@
+# CAF Configuration for LLM-based automatic feedback
+# This configuration enables automatic feedback collection using LLM instead of CLI
+
+feedback:
+  interface_type: 'llm'           # Use LLM interface for automatic feedback
+  llm_provider: 'openai'          # Use OpenAI as LLM provider
+  model_name: 'gpt-4o'       # Model for evaluation
+  timeout_seconds: 60             # Timeout for LLM calls
+
+memory:
+  # Memory configuration (using defaults)
+  storage_backend: 'sqlite'
+  database_path: '/home/yangchenyu/DeepEye-SQL-Metadata/data/memory.db'
+  
+  semantic:
+    storage_path: '/home/yangchenyu/DeepEye-SQL-Metadata/memory/semantic_memory'
+    # Semantic search configuration  
+    search:
+      weights:
+        keyword: 0.25
+        semantic: 0.35
+        value: 0.30
+        domain: 0.10
+      
+      candidate_limit: 50
+      value_match_boost: 2.0
+      cardinality_threshold: 5000
+      
+      # Retriever-specific top_k limits per NL span
+      retriever_limits:
+        column_per_term: 5  # Top-k columns to retrieve per NL span for column retriever
+        term_per_term: 3     # Top-k terms to retrieve per NL span for term retriever
+      
+      embedding:
+        provider: 'sentence_transformers'
+        model_name: 'sentence-transformers/all-MiniLM-L6-v2'
+        model_path: '/home/yangchenyu/DeepEye-SQL-Metadata/cache/models/all-MiniLM-L6-v2'  # Optional: local model path
+        device: 'cpu'
+        batch_size: 32
+        normalize_embeddings: true
+      
+      splade:
+        model_name: '/home/yangchenyu/pre-trained-models/splade-v3'  # Local path or HuggingFace model name
+        # Alternative HuggingFace models: 'naver/splade-cocondenser-ensembledistil' or 'naver/splade-v3'
+        device: 'cpu'  # 'cpu', 'cuda', or 'auto'
+        batch_size: 32
+        
+      llm_refinement:
+        enabled: true
+        provider: 'openai'
+        model_name: 'gpt-4o-mini'
+        temperature: 0.1
+        max_tokens: 4000
+      
+      # Relationship discovery configuration (for semantic memory)
+      relationship_discovery:
+        join_path_discovery:
+          similarity:
+            value_similarity_threshold: 0.8  # Minimum MinHash Jaccard similarity
+            minhash_num_perm: 256  # Number of permutations for MinHash
+            distinct_exact_threshold: 10000  # Use exact values if distinct_count <= this
+            llm_batch_size: 10  # Number of pairs to verify in each LLM batch
+
+  
+  episodic:
+    storage_path: '/home/yangchenyu/DeepEye-SQL-Metadata/memory/episodic_memory'
+    cache_size: 100
+  
+  guidance:
+    insights_path: '/home/yangchenyu/DeepEye-SQL-Metadata/output/error_analysis/damo/refined_insights.jsonl'
+    
+    search:
+      # NLQ Similarity Configuration (Embedding-based)
+      nlq_similarity:
+        enable_masked_question: true
+        similarity_metric: 'cosine'  # 'cosine' or 'euclidean' 
+        fallback_to_keywords: true
+        euclidean_scale: 1.0
+        
+        # Masked Question Configuration
+        masked_question:
+          enable_schema_linking: true
+          enable_value_masking: true
+          mask_token: '<mask>'      # For schema elements (following DAIL-SQL)
+          value_token: '<unk>'      # For values (following DAIL-SQL)
+          case_sensitive: false
+      
+      # SQL Skeleton Similarity Configuration
+      sql_skeleton:
+        # Uses existing implementation from CAF
+        
+      # Multi-layer Retrieval Configuration  
+      multi_layer:
+        same_db_nlq_weight: 0.6     # Weight for NLQ similarity in same database
+        same_db_sql_weight: 0.4     # Weight for SQL skeleton similarity in same database  
+        min_sql_skeleton_threshold: 0.1  # Minimum SQL skeleton similarity for cross-database
+      
+      # Embedding Configuration (DAIL-SQL default)
+      embedding:
+        provider: 'sentence_transformers'
+        model_name: 'all-mpnet-base-v2'
+        model_path: '/home/yangchenyu/DeepEye-SQL-Metadata/cache/models/all-mpnet-base-v2'  # Optional: local model path
+        device: 'cpu'
+        batch_size: 32
+        normalize_embeddings: true
+        max_seq_length: 512
+
+  
+  procedural:
+    storage_path: '/home/yangchenyu/DeepEye-SQL-Metadata/memory/procedural_memory'
+
+  # Similarity/Ambiguity detection configuration
+  similarity:
+    # Pseudo Query Collision Miner thresholds (提高这些值会减少检测到的冲突对)
+    relative_score_threshold: 0.85        # 提高到0.85 (默认0.7) - 更严格的相似度要求
+    relative_score_diff_threshold: 0.15   # 降低到0.15 (默认0.3) - 要求差异更小才算冲突
+    top_k_retrieval: 5                    # 降低到3 (默认5) - 只检查前3个结果
+    
+    # Value Overlap Cluster Miner thresholds (提高这个值会减少值重叠对)
+    value_jaccard_threshold: 0.8         # 提高到0.75 (默认0.6) - 更严格的Jaccard相似度
+    distinct_exact_threshold: 10000       # 保持默认
+    
+    # 如果还想用绝对阈值过滤（可选，一般不推荐）
+    # collision_score_threshold: 50.0     # 设置最小绝对得分阈值
+    # score_diff_threshold: 10.0          # 设置最小绝对差异阈值
+
+  # Metadata generation configuration
+  generators:
+    enable_ddl_analysis: true
+    enable_profiling: true
+    enable_join_path_discovery: true  
+    enable_llm_analysis: true
+
+# Global LLM configuration - unified configuration for all modules
+llm:
+  provider: 'openai'
+  model_name: 'gpt-4o-mini'
+  api_key: 'sk-6F6WwG6R2FW7Mvq12889E46c67B04d549bE13f7465F212Ba'  # OpenAI API key
+  base_url: 'https://vip.yi-zhan.top/v1'  # Custom OpenAI API base URL
+  temperature: 0.1
+  max_tokens: 4000
+  timeout: 60

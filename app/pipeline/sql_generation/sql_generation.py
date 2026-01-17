@@ -21,7 +21,15 @@ class SQLGenerationRunner:
     
     def __init__(self):
         self._llm = LLM(config.sql_generation_config.llm)
-        self._dataset = load_dataset(config.schema_linking_config.save_path)
+        # Load from augmented_data_retrieval output (augmented_data_retrieval happens before SQL generation)
+        # Fall back to schema_linking if augmented_data_retrieval output doesn't exist (backward compatibility)
+        from pathlib import Path
+        if Path(config.augmented_data_retrieval_config.save_path).exists() and config.augmented_data_retrieval_config.use_augmented_data:
+            logger.info(f"Loading dataset from {config.augmented_data_retrieval_config.save_path}")
+            self._dataset = load_dataset(config.augmented_data_retrieval_config.save_path)
+        else:
+            logger.info(f"Loading dataset from {config.schema_linking_config.save_path}")
+            self._dataset = load_dataset(config.schema_linking_config.save_path)
         self._thread_pool_executor = ThreadPoolExecutor(max_workers=config.sql_generation_config.n_parallel)
         self._dc_generator = DCGenerator()
         self._skeleton_generator = SkeletonGenerator()

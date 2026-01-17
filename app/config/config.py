@@ -30,7 +30,9 @@ class DatasetConfig(BaseModel):
     type: Literal["spider", "bird"] = Field(..., description="The type of the dataset")
     split: Literal["dev", "test"] = Field(..., description="The split of the dataset")
     root_path: Optional[str] = Field(..., description="The root path of the dataset")
-    save_path: str = Field(default=WORKSPACE_ROOT / "dataset" / f"{type}" / f"{split}.pkl", description="The save path of the dataset")
+    save_path: str = Field(default=str(WORKSPACE_ROOT / "dataset" / f"{type}" / f"{split}.pkl"), description="The save path of the dataset")
+    database_whitelist: Optional[List[str]] = Field(default=None, description="Subset of database IDs to include")
+    use_database_description: bool = Field(default=True, description="Whether to load database description files (expanded_column_name, column_description, value_description)")
     
     @model_validator(mode="after")
     def validate_split(self):
@@ -53,7 +55,7 @@ class VectorDatabaseConfig(BaseModel):
     normalize_embeddings: bool = Field(default=False, description="Whether to normalize embeddings")
     base_url: Optional[str] = Field(default=None, description="The base url of the embedding model service")
     api_key: Optional[str] = Field(default=None, description="The api key of the embedding model service")
-    store_root_path: str = Field(default=WORKSPACE_ROOT / "vector_store", description="The root path of the vector database")
+    store_root_path: str = Field(default=str(WORKSPACE_ROOT / "vector_store"), description="The root path of the vector database")
     max_value_length: int = Field(default=100, description="The maximum length of the value")
     lower_meta_data: bool = Field(default=True, description="Whether to lower the meta data")
 
@@ -62,22 +64,30 @@ class ValueRetrievalConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to extract keywords")
     n_results: int = Field(default=5, description="The number of results to retrieve")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
-    save_path: str = Field(default=WORKSPACE_ROOT / "value_retrieval", description="The save path of the value retrieval result")
+    save_path: str = Field(default=str(WORKSPACE_ROOT / "value_retrieval"), description="The save path of the value retrieval result")
 
+
+class AugmentedDataRetrievalConfig(BaseModel):
+    n_parallel: int = Field(default=1, description="The number of parallel threads to use (should be 1 for CAF thread safety)")
+    save_path: str = Field(default=str(WORKSPACE_ROOT / "augmented_data_retrieval"), description="The save path of the augmented data retrieval result")
+    semantic_search_limit: int = Field(default=20, description="The maximum number of items to retrieve from semantic search")
+    guidance_top_k: int = Field(default=5, description="The top-k guidance items to retrieve")
+    use_augmented_data: bool = Field(default=True, description="Whether to use augmented data")
 
 class SchemaLinkingConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to link tables and columns")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
-    save_path: str = Field(default=WORKSPACE_ROOT / "schema_linking", description="The save path of the schema linking result")
+    save_path: str = Field(default=str(WORKSPACE_ROOT / "schema_linking"), description="The save path of the schema linking result")
     direct_linking_sampling_budget: int = Field(default=5, description="The sampling budget of the direct linking")
     reversed_linking_sampling_budget: int = Field(default=5, description="The sampling budget of the reversed linking")
     value_distance_threshold: float = Field(default=0.05, description="The threshold of the value distance in value linking")
+    use_caf_metadata: bool = Field(default=False, description="Whether to use CAF metadata to enhance schema linking")
     
 
 class SQLGenerationConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to generate sql")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
-    save_path: str = Field(default=WORKSPACE_ROOT / "sql_generation", description="The save path of the sql generation result")
+    save_path: str = Field(default=str(WORKSPACE_ROOT / "sql_generation"), description="The save path of the sql generation result")
     dc_sampling_budget: int = Field(default=5, description="The sampling budget of the dc generation")
     skeleton_sampling_budget: int = Field(default=5, description="The sampling budget of the skeleton generation")
     icl_sampling_budget: int = Field(default=5, description="The sampling budget of the icl generation")
@@ -87,14 +97,14 @@ class SQLGenerationConfig(BaseModel):
 class SQLRevisionConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to revise sql")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
-    save_path: str = Field(default=WORKSPACE_ROOT / "sql_revision", description="The save path of the sql revision result")
+    save_path: str = Field(default=str(WORKSPACE_ROOT / "sql_revision"), description="The save path of the sql revision result")
     checker_sampling_budget: int = Field(default=5, description="The sampling budget of the checker")
 
 
 class SQLSelectionConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to select sql")
     n_parallel: int = Field(default=16, description="The number of parallel threads to use")
-    save_path: str = Field(default=WORKSPACE_ROOT / "sql_selection", description="The save path of the sql selection result")
+    save_path: str = Field(default=str(WORKSPACE_ROOT / "sql_selection"), description="The save path of the sql selection result")
     filter_top_k_sql: int = Field(default=2, description="The number of top k sql to filter")
     evaluator_sampling_budget: int = Field(default=1, description="The sampling budget of the evaluator")
     shortcut_consistency_score_threshold: float = Field(default=0.8, description="The threshold of the consistency score to shortcut")
@@ -104,6 +114,7 @@ class AppConfig(BaseModel):
     dataset: DatasetConfig = Field(default_factory=DatasetConfig, description="The config of the dataset")
     vector_database: VectorDatabaseConfig = Field(default_factory=VectorDatabaseConfig, description="The config of the vector database")
     value_retrieval: ValueRetrievalConfig = Field(default_factory=ValueRetrievalConfig, description="The config of the value retrieval")
+    augmented_data_retrieval: AugmentedDataRetrievalConfig = Field(default_factory=AugmentedDataRetrievalConfig, description="The config of the augmented data retrieval")
     schema_linking: SchemaLinkingConfig = Field(default_factory=SchemaLinkingConfig, description="The config of the schema linking")
     sql_generation: SQLGenerationConfig = Field(default_factory=SQLGenerationConfig, description="The config of the sql generation")
     sql_revision: SQLRevisionConfig = Field(default_factory=SQLRevisionConfig, description="The config of the sql revision")
@@ -160,14 +171,16 @@ class Config:
             "type": dataset_config.get("type"),
             "split": dataset_config.get("split"),
             "root_path": dataset_config.get("root_path"),
-            "save_path": dataset_config.get("save_path", WORKSPACE_ROOT / "dataset" / f"{dataset_config.get('type')}" / f"{dataset_config.get('split')}.pkl"),
+            "save_path": dataset_config.get("save_path", str(WORKSPACE_ROOT / "dataset" / f"{dataset_config.get('type')}" / f"{dataset_config.get('split')}.pkl")),
+            "database_whitelist": dataset_config.get("database_whitelist"),
+            "use_database_description": dataset_config.get("use_database_description", True),
         }
         
         # vector database config
         vector_database_config = config.get("vector_database", {})
         vector_database_settings = {
             "embedding_model_name_or_path": vector_database_config.get("embedding_model_name_or_path"),
-            "store_root_path": vector_database_config.get("store_root_path", WORKSPACE_ROOT / "vector_store"),
+            "store_root_path": vector_database_config.get("store_root_path", str(WORKSPACE_ROOT / "vector_store")),
             "use_qwen3_embedding": vector_database_config.get("use_qwen3_embedding", False),
             "local_files_only": vector_database_config.get("local_files_only", False),
             "normalize_embeddings": vector_database_config.get("normalize_embeddings", False),
@@ -181,7 +194,16 @@ class Config:
             "llm": LLMConfig(**value_retrieval_config.get("llm")),
             "n_results": value_retrieval_config.get("n_results", 5),
             "n_parallel": value_retrieval_config.get("n_parallel", 16),
-            "save_path": value_retrieval_config.get("save_path", WORKSPACE_ROOT / "value_retrieval"),
+            "save_path": value_retrieval_config.get("save_path", str(WORKSPACE_ROOT / "value_retrieval")),
+        }
+        
+        # augmented data retrieval config
+        augmented_data_retrieval_config = config.get("augmented_data_retrieval", {})
+        augmented_data_retrieval_settings = {
+            "n_parallel": augmented_data_retrieval_config.get("n_parallel", 1),
+            "save_path": augmented_data_retrieval_config.get("save_path", str(WORKSPACE_ROOT / "augmented_data_retrieval")),
+            "semantic_search_limit": augmented_data_retrieval_config.get("semantic_search_limit", 20),
+            "guidance_top_k": augmented_data_retrieval_config.get("guidance_top_k", 5),
         }
         
         # schema linking config
@@ -189,7 +211,7 @@ class Config:
         schema_linking_settings = {
             "llm": LLMConfig(**schema_linking_config.get("llm")),
             "n_parallel": schema_linking_config.get("n_parallel", 16),
-            "save_path": schema_linking_config.get("save_path", WORKSPACE_ROOT / "schema_linking"),
+            "save_path": schema_linking_config.get("save_path", str(WORKSPACE_ROOT / "schema_linking")),
             "direct_linking_sampling_budget": schema_linking_config.get("direct_linking_sampling_budget", 5),
             "reversed_linking_sampling_budget": schema_linking_config.get("reversed_linking_sampling_budget", 5),
             "value_distance_threshold": schema_linking_config.get("value_distance_threshold", 0.05),
@@ -200,7 +222,7 @@ class Config:
         sql_generation_settings = {
             "llm": LLMConfig(**sql_generation_config.get("llm")),
             "n_parallel": sql_generation_config.get("n_parallel", 16),
-            "save_path": sql_generation_config.get("save_path", WORKSPACE_ROOT / "sql_generation"),
+            "save_path": sql_generation_config.get("save_path", str(WORKSPACE_ROOT / "sql_generation")),
             "dc_sampling_budget": sql_generation_config.get("dc_sampling_budget", 5),
             "skeleton_sampling_budget": sql_generation_config.get("skeleton_sampling_budget", 5),
             "icl_sampling_budget": sql_generation_config.get("icl_sampling_budget", 5),
@@ -212,7 +234,7 @@ class Config:
         sql_revision_settings = {
             "llm": LLMConfig(**sql_revision_config.get("llm")),
             "n_parallel": sql_revision_config.get("n_parallel", 16),
-            "save_path": sql_revision_config.get("save_path", WORKSPACE_ROOT / "sql_revision"),
+            "save_path": sql_revision_config.get("save_path", str(WORKSPACE_ROOT / "sql_revision")),
             "checker_sampling_budget": sql_revision_config.get("checker_sampling_budget", 5),
         }
         
@@ -221,7 +243,7 @@ class Config:
         sql_selection_settings = {
             "llm": LLMConfig(**sql_selection_config.get("llm")),
             "n_parallel": sql_selection_config.get("n_parallel", 16),
-            "save_path": sql_selection_config.get("save_path", WORKSPACE_ROOT / "sql_selection"),
+            "save_path": sql_selection_config.get("save_path", str(WORKSPACE_ROOT / "sql_selection")),
             "filter_top_k_sql": sql_selection_config.get("filter_top_k_sql", 10),
             "evaluator_sampling_budget": sql_selection_config.get("evaluator_sampling_budget", 1),
             "shortcut_consistency_score_threshold": sql_selection_config.get("shortcut_consistency_score_threshold", 0.8),
@@ -231,6 +253,7 @@ class Config:
             dataset=DatasetConfig(**dataset_settings),
             vector_database=VectorDatabaseConfig(**vector_database_settings),
             value_retrieval=ValueRetrievalConfig(**value_retrieval_settings),
+            augmented_data_retrieval=AugmentedDataRetrievalConfig(**augmented_data_retrieval_settings),
             schema_linking=SchemaLinkingConfig(**schema_linking_settings),
             sql_generation=SQLGenerationConfig(**sql_generation_settings),
             sql_revision=SQLRevisionConfig(**sql_revision_settings),
@@ -252,6 +275,10 @@ class Config:
     @property
     def value_retrieval_config(self):
         return self._app_config.value_retrieval
+    
+    @property
+    def augmented_data_retrieval_config(self):
+        return self._app_config.augmented_data_retrieval
     
     @property
     def schema_linking_config(self):

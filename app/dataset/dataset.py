@@ -27,6 +27,7 @@ class DataItem(BaseModel):
     # Schema Linking Step
     direct_linked_tables_and_columns: Optional[Dict[str, Dict[str, List[str]]]] = Field(default=None, description="The linked tables and columns of the data item by Direct Linking")
     reversed_linked_tables_and_columns: Optional[Dict[str, Dict[str, List[str]]]] = Field(default=None, description="The linked tables and columns of the data item by Reversed Linking")
+    reversed_linking_sql_candidates: Optional[List[str]] = Field(default=None, description="The preliminary SQL candidates generated during Reversed Linking for schema discovery")
     value_linked_tables_and_columns: Optional[Dict[str, Dict[str, List[str]]]] = Field(default=None, description="The linked tables and columns of the data item by Value Linking")
     final_linked_tables_and_columns: Optional[Dict[str, Dict[str, List[str]]]] = Field(default=None, description="The final linked tables and columns of the data item")
     database_schema_after_schema_linking: Optional[Dict[str, Any]] = Field(default=None, description="The database schema with linked tables and columns of the data item")
@@ -45,6 +46,12 @@ class DataItem(BaseModel):
     # sql_candidates_after_regeneration: Optional[List[Dict[str, Any]]] = Field(default=None, description="The sql candidates after regeneration of the data item")
     # final_best_sql: Optional[str] = Field(default=None, description="The final best sql of the data item")
     
+    # Augmented Data Retrieval Step
+    encoding_mappings: Optional[Dict[str, Dict[str, Any]]] = Field(default=None, description="The encoding mappings for columns (table.column -> encoding_mapping)")
+    schema_metadata: Optional[Dict[str, Dict[str, Any]]] = Field(default=None, description="The schema metadata including column metadata (table.column -> metadata) and table metadata (__tables__ -> {table_name -> {description, row_definition, ...}})")
+    join_relationships: Optional[List[Dict[str, Any]]] = Field(default=None, description="The recommended join relationships between tables")
+    sql_guidance_items: Optional[List[Dict[str, Any]]] = Field(default=None, description="The retrieved SQL guidance items from historical insights")
+    
     # Schema linking recall metrics
     direct_linking_recall: Optional[Dict[str, float]] = Field(default=None, description="The direct linking recall")
     reversed_linking_recall: Optional[Dict[str, float]] = Field(default=None, description="The reversed linking recall")
@@ -53,6 +60,7 @@ class DataItem(BaseModel):
     
     # Time cost metrics for each step
     value_retrieval_time: Optional[float] = Field(default=None, description="The time cost of value retrieval of the data item")
+    augmented_data_retrieval_time: Optional[float] = Field(default=None, description="The time cost of augmented data retrieval of the data item")
     schema_linking_time: Optional[float] = Field(default=None, description="The time cost of schema linking of the data item")
     sql_generation_time: Optional[float] = Field(default=None, description="The time cost of sql generation of the data item")
     sql_revision_time: Optional[float] = Field(default=None, description="The time cost of sql revision of the data item")
@@ -62,6 +70,7 @@ class DataItem(BaseModel):
     
     # LLM cost metrics for each step
     value_retrieval_llm_cost: Optional[Dict[str, Any]] = Field(default=None, description="The llm cost of value retrieval of the data item")
+    augmented_data_retrieval_llm_cost: Optional[Dict[str, Any]] = Field(default=None, description="The llm cost of augmented data retrieval of the data item")
     schema_linking_llm_cost: Optional[Dict[str, Any]] = Field(default=None, description="The llm cost of schema linking of the data item")
     sql_generation_llm_cost: Optional[Dict[str, Any]] = Field(default=None, description="The llm cost of sql generation of the data item")
     sql_revision_llm_cost: Optional[Dict[str, Any]] = Field(default=None, description="The llm cost of sql revision of the data item")
@@ -77,6 +86,7 @@ class BaseDataset(ABC):
 
     def __init__(self, dataset_config: DatasetConfig):
         self._config = dataset_config
+        self._database_whitelist = set(dataset_config.database_whitelist or [])
         self._data = self._load_data()
 
     def _load_database_schema(self, database_id: str):
@@ -84,7 +94,8 @@ class BaseDataset(ABC):
             return self._database_schema_cache[database_id]
         else:
             database_path = self._get_database_path(database_id)
-            database_schema = load_database_schema_dict(database_path)
+            use_database_description = self._config.use_database_description
+            database_schema = load_database_schema_dict(database_path, use_database_description)
             self._database_schema_cache[database_id] = database_schema
             return database_schema
     
@@ -128,6 +139,8 @@ class BirdDataset(BaseDataset):
             gold_sql = data_item.get("SQL")
             difficulty = data_item.get("difficulty")
             database_id = data_item.get("db_id")
+            if self._database_whitelist and database_id not in self._database_whitelist:
+                continue  # skip databases outside of whitelist
             database_path = self._get_database_path(database_id)
             database_schema = self._load_database_schema(database_id)
             data.append(
@@ -170,6 +183,8 @@ class SpiderDataset(BaseDataset):
             gold_sql = data_item.get("query")
             difficulty = ""
             database_id = data_item.get("db_id")
+            if self._database_whitelist and database_id not in self._database_whitelist:
+                continue  # skip databases outside of whitelist
             database_path = self._get_database_path(database_id)
             database_schema = self._load_database_schema(database_id)
             data.append(

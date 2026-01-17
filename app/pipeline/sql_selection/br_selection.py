@@ -107,8 +107,21 @@ class BRSelectionRunner:
         votes = []
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
-        database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
-        prompt = PromptFactory.format_br_pair_selection_prompt(database_schema_profile, data_item.question, data_item.evidence, sql_a, execution_result_table_str_a, sql_b, execution_result_table_str_b)
+        # Get enhanced database schema profile (includes schema_metadata and join_relationships)
+        database_schema_profile = PromptFactory.get_enhanced_database_schema_profile(data_item)
+        # Get SQL guidance (low confidence reference material from historical patterns)
+        sql_guidance = PromptFactory.get_sql_guidance(data_item)
+        
+        prompt = PromptFactory.format_br_pair_selection_prompt(
+            database_schema_profile, 
+            data_item.question, 
+            data_item.evidence, 
+            sql_guidance,
+            sql_a, 
+            execution_result_table_str_a, 
+            sql_b, 
+            execution_result_table_str_b
+        )
         while len(votes) < config.sql_selection_config.evaluator_sampling_budget:
             try:
                 responses, token_usage = self._llm.ask([{"role": "user", "content": prompt}], n=config.sql_selection_config.evaluator_sampling_budget - len(votes), stop=["</result>"])

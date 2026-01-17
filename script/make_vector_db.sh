@@ -35,7 +35,7 @@ log_step() {
 
 # 设置参数
 # DB_ROOT_DIR="data/bird/dev/dev_databases"
-DB_ROOT_DIR="data/spider/test_database"
+DB_ROOT_DIR="data/bird/dev/dev_databases"
 TOTAL_GPU_NUM=2
 MAX_PROCESSES_PER_GPU=1  # 每个GPU上同时运行的最大进程数（固定为1）
 TOTAL_MAX_PROCESSES=$TOTAL_GPU_NUM  # 总最大进程数等于GPU数量
@@ -122,7 +122,7 @@ for ((i=0; i<TOTAL_DBS; i++)); do
     
     # 启动新进程，指定GPU
     log_info "Starting preprocessing for database $DB_NAME on GPU $GPU_ID (Process $((i+1))/$TOTAL_DBS)"
-    CUDA_VISIBLE_DEVICES=$GPU_ID uv run runner/create_vector_db.py --db_path $DB_PATH &
+    CUDA_VISIBLE_DEVICES=$GPU_ID python runner/create_vector_db.py --db_path $DB_PATH &
     PROCESS_PID=$!
     
     # 启动清理进程

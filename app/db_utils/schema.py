@@ -108,17 +108,21 @@ def _normalize_description_string(description: str) -> str:
     return description.strip()
 
 
-def load_database_description(db_id: str, database_dir: Path) -> Dict[str, Dict[str, Dict[str, Any]]]:
+def load_database_description(db_id: str, database_dir: Path, use_database_description: bool = True) -> Dict[str, Dict[str, Dict[str, Any]]]:
     """
     Load database description from database.
     
     Args:
         db_id: Database ID.
         database_dir: Directory of current database.
+        use_database_description: Whether to load database description files. If False, returns empty dict.
     Returns:
         A dictionary with lowercased table names as keys and table descriptions as values.
         The table description is a dictionary with lowercased original column names as keys and column descriptions as values.
     """
+    if not use_database_description:
+        return {}
+    
     db_description_dir = database_dir / "database_description"
     if not db_description_dir.exists():
         logger.warning(f"Database description for database {db_id} does not exist, skipping...")
@@ -166,10 +170,10 @@ def load_value_statistics(db_path: str, table_name: str, column_name: str) -> Di
 
 
 @lru_cache(maxsize=1000)
-def load_database_schema_dict(db_path: Union[str, Path]) -> Dict[str, Any]:
+def load_database_schema_dict(db_path: Union[str, Path], use_database_description: bool = True) -> Dict[str, Any]:
     db_path = Path(db_path) if isinstance(db_path, str) else db_path
     db_id = db_path.stem
-    database_description = load_database_description(db_id, db_path.parent)
+    database_description = load_database_description(db_id, db_path.parent, use_database_description)
     database_schema_dict = {}
     database_schema_dict["db_id"] = db_id
     database_schema_dict["db_path"] = str(db_path)
@@ -217,13 +221,15 @@ def load_database_schema_dict(db_path: Union[str, Path]) -> Dict[str, Any]:
             column_schema_dict["description"] = " | ".join(descriptions) if descriptions else ""
             
             # Set value examples
-            if column_type.upper() != "BLOB":
+            if use_database_description and column_type.upper() != "BLOB":
                 column_schema_dict["value_examples"] = load_value_examples(db_path, table_name, column_name)
             else:
                 column_schema_dict["value_examples"] = []
             
-            # Set value statistics
-            column_schema_dict["value_statistics"] = load_value_statistics(db_path, table_name, column_name)
+            if use_database_description:
+                column_schema_dict["value_statistics"] = load_value_statistics(db_path, table_name, column_name)
+            else:
+                column_schema_dict["value_statistics"] = None
             
             table_schema_dict["columns"][column_name] = column_schema_dict
         database_schema_dict["tables"][table_name] = table_schema_dict
@@ -263,23 +269,57 @@ def get_table_profile(table_schema_dict: Dict[str, Any]) -> str:
         representation += "Primary Key:\n"
         representation += f"({', '.join(all_primary_keys)})"
     
-    all_foreign_keys = []
-    for column_name, column_schema_dict in table_schema_dict["columns"].items():
-        for target_table_name, target_column_name in column_schema_dict["foreign_keys"]:
-            all_foreign_keys.append(f"`{table_schema_dict['table_name']}`.`{column_name}` = `{target_table_name}`.`{target_column_name}`")
-    if all_foreign_keys:
-        representation += "Foreign Keys:\n"
-        representation += f"{'\n'.join(all_foreign_keys)}"
+    # all_foreign_keys = []
+    # for column_name, column_schema_dict in table_schema_dict["columns"].items():
+    #     for target_table_name, target_column_name in column_schema_dict["foreign_keys"]:
+    #         all_foreign_keys.append(f"`{table_schema_dict['table_name']}`.`{column_name}` = `{target_table_name}`.`{target_column_name}`")
+    # # if all_foreign_keys:
+    #     representation += "Foreign Keys:\n"
+    #     representation += f"{'\n'.join(all_foreign_keys)}"
+    
     return representation
 
 
-def get_database_schema_profile(database_schema_dict: Dict[str, Any]) -> str:
+def get_database_schema_profile(
+    database_schema_dict: Dict[str, Any], 
+    schema_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
+    join_relationships: Optional[List[Dict[str, Any]]] = None
+) -> str:
+    """
+    Generate database schema profile with optional enhanced metadata and join relationships.
+    
+    Args:
+        database_schema_dict: Database schema dictionary
+        schema_metadata: Optional dict with:
+                        - Column metadata: "table.column" -> metadata dict (includes long_description)
+                        - Table metadata: "__tables__" -> {table_name -> {description, row_definition, ...}}
+        join_relationships: Optional list of join relationships (FK and value overlap),
+                          optionally including cardinality and business_meaning
+        
+    Returns:
+        Formatted schema profile string
+    """
     profile = ""
     db_id = database_schema_dict["db_id"]
     profile += f"Database ID: `{db_id}`\n"
     profile += f"Schema:\n"
+    
+    # Extract table metadata from schema_metadata if available
+    table_metadata_dict = {}
+    if schema_metadata and '__tables__' in schema_metadata:
+        table_metadata_dict = schema_metadata['__tables__']
+    
     for table_name, table_schema_dict in database_schema_dict["tables"].items():
         profile += f"- Table: `{table_name}`\n"
+        
+        # Add table-level metadata (description and row_definition) if available
+        if table_name in table_metadata_dict:
+            table_meta = table_metadata_dict[table_name]
+            if table_meta.get('description'):
+                profile += f"  Description: {table_meta['description']}\n"
+            if table_meta.get('row_definition'):
+                profile += f"  Row Definition: {table_meta['row_definition']}\n"
+        
         profile += f"[\n"
         column_profiles = []
         columns = list(table_schema_dict["columns"].items())
@@ -296,10 +336,20 @@ def get_database_schema_profile(database_schema_dict: Dict[str, Any]) -> str:
                 column_profile += f" | Value Statistics: {column_schema_dict["value_statistics"]["null_count"]} NULL values, {column_schema_dict["value_statistics"]["distinct_count"]} distinct values, {column_schema_dict["value_statistics"]["total_count"]} total values"
             if column_schema_dict["value_examples"]:
                 column_profile += f" | Value Examples: {column_schema_dict["value_examples"]}"
+
+            # Append long_description from schema_metadata if available
+            if schema_metadata:
+                column_path = f"{table_name}.{column_name}"
+                if column_path in schema_metadata:
+                    long_desc = schema_metadata[column_path].get('long_description', '')
+                    if long_desc:
+                        column_profile += f" | [Details] {long_desc}"
+            
             column_profiles.append(f"({column_profile})")
         profile += f"{',\n'.join(column_profiles)}\n"
         profile += f"]\n"
 
+    # Add foreign keys section
     all_foreign_keys = []
     for table_name, table_schema_dict in database_schema_dict["tables"].items():
         for column_name, column_schema_dict in table_schema_dict["columns"].items():
@@ -310,8 +360,94 @@ def get_database_schema_profile(database_schema_dict: Dict[str, Any]) -> str:
                     all_foreign_keys.append(f"`{table_name}`.`{column_name}` = `{target_table_name}`.`{target_column_name}`")
     if all_foreign_keys:
         profile += "Foreign Keys:\n"
-        profile += f"{'\n'.join(all_foreign_keys)}"
+        profile += f"{'\n'.join(all_foreign_keys)}\n"
+    
+    # Add join relationships section (if provided)
+    if join_relationships:
+        profile += "\n"
+        profile += _format_join_relationships_for_schema(join_relationships)
+    
+    # print('*'*30 + 'Profile' + '*'*30)
+    # print(profile)
+    # print('*'*70)
+    
     return profile
+
+
+def _format_join_relationships_for_schema(join_relationships: List[Dict[str, Any]]) -> str:
+    """
+    Format join relationships for inclusion in database schema profile.
+    
+    Args:
+        join_relationships: List of join relationships with various types (foreign_key, value_overlap_join, etc.),
+                          optionally including cardinality and business_meaning
+        
+    Returns:
+        Formatted string for schema profile
+    """
+    if not join_relationships:
+        return ""
+    
+    # Separate joins by type
+    foreign_key_joins = [j for j in join_relationships if j.get('relationship_type') == 'foreign_key']
+    value_overlap_joins = [j for j in join_relationships if j.get('relationship_type') == 'value_overlap_join']
+    other_joins = [j for j in join_relationships if j.get('relationship_type') not in ['foreign_key', 'value_overlap_join']]
+    
+    lines = []
+    
+    # Format foreign key joins (if any, though they're also shown in Foreign Keys section above)
+    if foreign_key_joins:
+        lines.append("Join Relationships (PK-FK):")
+        lines.append("")
+        for join in foreign_key_joins:
+            source_table = join['source_table']
+            source_cols = ', '.join(join['source_columns'])
+            target_table = join['target_table']
+            target_cols = ', '.join(join['target_columns'])
+            
+            join_desc = f"  - `{source_table}`.`{source_cols}` = `{target_table}`.`{target_cols}`"
+            
+            # Add cardinality if available
+            if join.get('cardinality'):
+                join_desc += f" [Cardinality: {join['cardinality']}]"
+            
+            # Add business_meaning if available
+            if join.get('business_meaning'):
+                join_desc += f" | {join['business_meaning']}"
+            
+            lines.append(join_desc)
+        lines.append("")
+    
+    # Format value overlap joins
+    if value_overlap_joins:
+        lines.append("Join Relationships (High Value Overlap - Discovered by Data Analysis):")
+        lines.append("")
+        lines.append("The following joins were discovered through data analysis based on HIGH VALUE OVERLAP between columns. These represent potential join paths where column values overlap significantly, but are NOT explicit foreign key constraints in the schema.")
+        lines.append("")
+        
+        for join in value_overlap_joins:
+            source_table = join['source_table']
+            source_cols = ', '.join(join['source_columns'])
+            target_table = join['target_table']
+            target_cols = ', '.join(join['target_columns'])
+            
+            # Build join description
+            join_desc = f"  - `{source_table}`.`{source_cols}` ≈ `{target_table}`.`{target_cols}`"
+            
+            # Add cardinality if available
+            if join.get('cardinality'):
+                join_desc += f" [Cardinality: {join['cardinality']}]"
+            
+            # Add business_meaning if available
+            if join.get('business_meaning'):
+                join_desc += f" | {join['business_meaning']}"
+            else:
+                join_desc += " (high value overlap detected)"
+            
+            lines.append(join_desc)
+
+    
+    return "\n".join(lines)
 
 
 def map_lower_table_name_to_original_table_name(table_name: str, database_schema_dict: Dict[str, Any]) -> Optional[str]:

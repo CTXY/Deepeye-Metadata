@@ -14,8 +14,11 @@ class JoinChecker(BaseChecker):
         join_suggestion = self._check_join(sql)
         if join_suggestion:
             logger.info(f"[JoinChecker] Found join errors in SQL: {sql}")
-            database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
-            prompt = PromptFactory.format_common_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, join_suggestion)
+            # Get enhanced database schema profile (includes schema_metadata and join_relationships - critical for join checking)
+            database_schema_profile = PromptFactory.get_enhanced_database_schema_profile(data_item)
+            # Get SQL guidance (low confidence reference material)
+            sql_guidance = PromptFactory.get_sql_guidance(data_item)
+            prompt = PromptFactory.format_common_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, join_suggestion, sql_guidance)
             parsed_sql_candidate = None
             total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             while not parsed_sql_candidate and sampling_budget > 0:

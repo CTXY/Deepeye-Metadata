@@ -2,7 +2,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from loguru import logger as _logger
-
+import logging
 from app.config import WORKSPACE_ROOT
 
 
@@ -23,6 +23,10 @@ def define_log_level(print_level="INFO", logfile_level="DEBUG", name: str = None
     _logger.remove()
     _logger.add(sys.stderr, level=print_level)
     _logger.add(WORKSPACE_ROOT / f"logs/{log_name}.log", level=logfile_level)
+    
+    # Disable httpx INFO logs to avoid verbose HTTP request logging
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    
     return _logger
 
 

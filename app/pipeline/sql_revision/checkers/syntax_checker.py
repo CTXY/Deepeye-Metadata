@@ -17,7 +17,8 @@ class SyntaxChecker(BaseChecker):
         if execution_result.result_type in ["success", "empty_result", "all_null_result"]:
             return sql, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         else:
-            database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
+            # Get enhanced database schema profile (includes schema_metadata and join_relationships)
+            database_schema_profile = PromptFactory.get_enhanced_database_schema_profile(data_item)
             prompt = PromptFactory.format_execution_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, execution_result.result_table_str)
             total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             all_sql_candidates = []

@@ -11,6 +11,7 @@ import numpy as np
 
 
 def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Optional[int]:
+
     pred_result = execute_sql(db_path, pred_sql)
     gold_result = execute_sql(db_path, gold_sql)
     if gold_result.result_rows is None:
@@ -23,7 +24,7 @@ def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Opti
 def run_evaluation():
     dataset = load_dataset(config.sql_selection_config.save_path)
     executor = ProcessPoolExecutor(max_workers=config.sql_selection_config.n_parallel)
-    all_futures = [ executor.submit(_eval_ex_after_selection, data_item.final_selected_sql, data_item.gold_sql, data_item.database_path) for data_item in dataset if data_item.final_selected_sql is not None ]
+    all_futures = [ executor.submit(_eval_ex_after_selection, data_item.final_selected_sql, data_item.gold_sql, data_item.database_path) for data_item in dataset if data_item.final_selected_sql is not None]
 
     selected_results = []
     for future in tqdm(as_completed(all_futures), total=len(all_futures), desc="Evaluating SQL"):

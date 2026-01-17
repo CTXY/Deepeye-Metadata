@@ -14,8 +14,11 @@ class OrderByLimitChecker(BaseChecker):
         order_by_limit_suggestion = self._check_order_by_limit(sql)
         if order_by_limit_suggestion:
             logger.info(f"[OrderByLimitChecker] Found order-by-limit errors in SQL: {sql}")
-            database_schema_profile = get_database_schema_profile(data_item.database_schema_after_schema_linking)
-            prompt = PromptFactory.format_common_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, order_by_limit_suggestion)
+            # Get enhanced database schema profile (includes schema_metadata and join_relationships)
+            database_schema_profile = PromptFactory.get_enhanced_database_schema_profile(data_item)
+            # Get SQL guidance (low confidence reference material, especially for ORDER BY LIMIT patterns)
+            sql_guidance = PromptFactory.get_sql_guidance(data_item)
+            prompt = PromptFactory.format_common_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, order_by_limit_suggestion, sql_guidance)
             parsed_sql_candidate = None
             total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             while not parsed_sql_candidate and sampling_budget > 0:

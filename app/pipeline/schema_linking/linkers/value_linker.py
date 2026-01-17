@@ -3,7 +3,7 @@ from app.dataset import DataItem
 from app.llm import LLM
 from app.config import config
 from app.db_utils import map_lower_table_name_to_original_table_name, map_lower_column_name_to_original_column_name
-from typing import Dict, List
+from typing import Dict, List, Optional, Any
 from collections import defaultdict
 
 
@@ -11,7 +11,14 @@ class ValueLinker(BaseSchemaLinker):
     
     _value_distance_threshold: float = config.schema_linking_config.value_distance_threshold
     
-    def link(self, data_item: DataItem, llm: LLM, sampling_budget: int = 1) -> tuple[Dict[str, List[str]], Dict[str, int]]:
+    def link(
+        self, 
+        data_item: DataItem, 
+        llm: LLM, 
+        sampling_budget: int = 1,
+        schema_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
+        join_relationships: Optional[List[Dict[str, Any]]] = None
+    ) -> tuple[Dict[str, List[str]], Dict[str, int]]:
         linked_tables_and_columns = defaultdict(list)
         for table_name, columns in data_item.retrieved_values.items():
             table_name = map_lower_table_name_to_original_table_name(table_name, data_item.database_schema)

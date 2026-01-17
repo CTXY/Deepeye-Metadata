@@ -164,6 +164,8 @@ Please respond with XML code structured as follows.
 ## Hints:
 {HINT}
 
+{SQL_GUIDANCE}
+
 Repeating the question and hint, and generating the SQL with Recursive Divide-and-Conquer approach, and finally try to simplify the SQL query using `INNER JOIN` over nested `SELECT` statements IF POSSIBLE.
 
 # Output:
@@ -219,7 +221,12 @@ Please respond with XML code structured as follows:
 {DATABASE_SCHEMA}
 
 ## Target Question:
-{QUESTION} {HINT}
+{QUESTION}
+
+## Hint:
+{HINT}
+
+{SQL_GUIDANCE}
 
 # Output:
 """
@@ -291,6 +298,8 @@ Please respond with XML code structured as follows:
 ## Hint:
 {HINT}
 
+{SQL_GUIDANCE}
+
 # Output:
 """
 
@@ -332,6 +341,8 @@ Please respond with XML code structured as follows.
 
 ## Hint:
 {HINT}
+
+{SQL_GUIDANCE}
 
 ## Previous SQL:
 {QUERY}
@@ -382,6 +393,8 @@ Please respond with XML code structured as follows.
 ## Hint:
 {HINT}
 
+{SQL_GUIDANCE}
+
 ## Previous SQL:
 {QUERY}
 
@@ -429,6 +442,8 @@ Please respond with XML code structured as follows:
 
 ## Hint:
 {HINT}
+
+{SQL_GUIDANCE}
 
 SQL Candidate A:
 {QUERY_A}

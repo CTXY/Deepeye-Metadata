@@ -1,0 +1,93 @@
+# CAF Configuration for LLM-based automatic feedback
+# This configuration enables automatic feedback collection using LLM instead of CLI
+
+feedback:
+  interface_type: 'llm'           # Use LLM interface for automatic feedback
+  llm_provider: 'openai'          # Use OpenAI as LLM provider
+  model_name: 'gpt-4o-mini'       # Model for evaluation
+  timeout_seconds: 60             # Timeout for LLM calls
+
+memory:
+  # Memory configuration (using defaults)
+  storage_backend: 'sqlite'
+  database_path: '/home/yangchenyu/DeepEye-SQL-Metadata/data/memory.db'
+  
+  semantic:
+    storage_path: '/home/yangchenyu/DeepEye-SQL-Metadata/memory/semantic_memory'
+    embedding_model: 'all-MiniLM-L6-v2'
+    
+    # Semantic search configuration  
+    search:
+      weights:
+        keyword: 0.25
+        semantic: 0.35
+        value: 0.30
+        domain: 0.10
+      
+      candidate_limit: 50
+      value_match_boost: 2.0
+      cardinality_threshold: 5000
+      
+      embedding:
+        provider: 'sentence_transformers'
+        model_name: 'all-MiniLM-L6-v2'
+        device: 'cpu'
+        batch_size: 32
+        normalize_embeddings: true
+        
+      llm_refinement:
+        enabled: true
+        provider: 'openai'
+        model_name: 'gpt-4o-mini'
+        temperature: 0.1
+        max_tokens: 4000
+  
+  episodic:
+    storage_path: '/home/yangchenyu/DeepEye-SQL-Metadata/memory/episodic_memory'
+    cache_size: 100
+    
+    search:
+      # NLQ Similarity Configuration (Embedding-based)
+      nlq_similarity:
+        enable_masked_question: true
+        similarity_metric: 'cosine'  # 'cosine' or 'euclidean' 
+        fallback_to_keywords: true
+        euclidean_scale: 1.0
+        
+        # Masked Question Configuration
+        masked_question:
+          enable_schema_linking: true
+          enable_value_masking: true
+          mask_token: '<mask>'      # For schema elements (following DAIL-SQL)
+          value_token: '<unk>'      # For values (following DAIL-SQL)
+          case_sensitive: false
+      
+      # SQL Skeleton Similarity Configuration
+      sql_skeleton:
+        # Uses existing implementation from CAF
+        
+      # Multi-layer Retrieval Configuration  
+      multi_layer:
+        same_db_nlq_weight: 0.6     # Weight for NLQ similarity in same database
+        same_db_sql_weight: 0.4     # Weight for SQL skeleton similarity in same database  
+        min_sql_skeleton_threshold: 0.1  # Minimum SQL skeleton similarity for cross-database
+      
+      # Embedding Configuration (DAIL-SQL default)
+      embedding:
+        provider: 'sentence_transformers'
+        model_name: 'sentence-transformers/all-mpnet-base-v2'  # DAIL-SQL model
+        device: 'cpu'
+        batch_size: 32
+        normalize_embeddings: true
+        max_seq_length: 512
+
+  
+# Global LLM configuration - unified configuration for all modules
+llm:
+  provider: 'openai'
+  model_name: 'gpt-4o-mini'
+  api_key: 'sk-6F6WwG6R2FW7Mvq12889E46c67B04d549bE13f7465F212Ba'  # OpenAI API key
+  base_url: 'https://vip.yi-zhan.top/v1'  # Custom OpenAI API base URL
+  temperature: 0.1
+  max_tokens: 4000
+  timeout: 60

@@ -1,0 +1,95 @@
+{
+  "executive_diagnosis": {
+    "final_conclusion": "存在重大区别",
+    "risk_matrix": [
+      {
+        "风险维度": "数据膨胀 (Fan-out)",
+        "检测结果": "🚨 高风险 (最大扇出: 5080)",
+        "影响解释": "系列翻译表中每个值最多对应5080条记录，JOIN会导致严重的数据膨胀"
+      },
+      {
+        "风险维度": "数据丢失 (Filtering)",
+        "检测结果": "🚨 高风险 (匹配率: 22.6%)",
+        "影响解释": "卡牌表中有77.4%的值在系列翻译表中找不到，INNER JOIN会丢失大量数据"
+      },
+      {
+        "风险维度": "字段唯一性检查",
+        "检测结果": "卡牌表: 非唯一, 系列翻译表: 非唯一",
+        "影响解释": "两个字段都非唯一，可能形成复杂的N:N关系"
+      }
+    ],
+    "quick_summary": "预计JOIN查询结果行数: 246330，存在数据膨胀风险"
+  },
+  "scenario_simulation": {
+    "specific_value_example": "'OGW'",
+    "query_comparison": {
+      "query_1_single_table": {
+        "行为描述": "仅查询卡牌表表",
+        "结果预测": "返回卡牌表表中所有'OGW'相关的记录",
+        "准确性": "✅ 准确反映主表数据"
+      },
+      "query_2_join": {
+        "行为描述": "先将卡牌表与系列翻译表连接，再过滤",
+        "结果预测": "可能返回246330行（每条主表记录重复5080次）",
+        "潜在问题": "每一条卡牌表的记录都重复出现了5080次"
+      }
+    },
+    "data_examples": {
+      "missing_in_join_table": [
+        "2ED",
+        "2XM",
+        "3ED",
+        "4BB",
+        "A25"
+      ],
+      "risk_explanation": "以上值存在于卡牌表中，但在系列翻译表中找不到，使用JOIN查询会丢失相关数据"
+    }
+  },
+  "field_relationship_map": {
+    "mapping_relationship": "1:N",
+    "relationship_description": "一对多关系（1:5080）",
+    "join_safety_assessment": "不安全，会产生5080倍数据重复",
+    "connection_advice": {
+      "recommendation": "❌ 不建议直接JOIN，两个字段都不适合作为连接键",
+      "left_field_suitability": "不适合",
+      "right_field_suitability": "不适合",
+      "additional_requirements": [
+        "需要额外条件确保1:1关系，避免5080倍数据重复",
+        "需要检查数据完整性，77.4%的数据可能丢失"
+      ]
+    }
+  },
+  "actionable_advice": {
+    "priority_recommendations": [
+      {
+        "priority": "高优先级",
+        "strategy": "建议使用单表查询（Query 1）",
+        "reason": "JOIN查询会导致数据重复5080倍"
+      }
+    ],
+    "join_usage_guidance": "如果必须使用JOIN，需要添加额外条件确保唯一性",
+    "sql_examples": {
+      "recommended_single_table": "SELECT columns FROM 卡牌表 WHERE field = 'value'",
+      "cautious_join": "SELECT columns FROM 卡牌表 a LEFT JOIN 系列翻译表 b ON a.field = b.field WHERE ...",
+      "join_with_conditions": "SELECT DISTINCT columns FROM 卡牌表 a JOIN 系列翻译表 b ON a.field = b.field WHERE ..."
+    },
+    "performance_considerations": [
+      "单表查询性能更好",
+      "预计JOIN结果行数: 246330"
+    ],
+    "data_quality_warnings": [
+      "发现415个值在JOIN表中缺失"
+    ]
+  },
+  "metadata": {
+    "analyzer_type": "query_difference_analysis",
+    "version": "2.0",
+    "database_path": "/home/yangchenyu/DeepEye-SQL-Metadata/dataset/bird/databases/dev_databases/card_games/card_games.sqlite",
+    "primary_query_field": "cards.setCode",
+    "join_filter_field": "set_translations.setCode",
+    "report_generated_at": "2025-12-02T09:29:13.013408",
+    "report_version": "2.0",
+    "table_a_name": "卡牌表",
+    "table_b_name": "系列翻译表"
+  }
+}

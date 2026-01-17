@@ -7,6 +7,8 @@ from app.logger import logger
 
 def preprocess_dataset(dataset_config: DatasetConfig):
     logger.info(f"Preprocessing dataset: {dataset_config.type} {dataset_config.split}")
+    if dataset_config.database_whitelist:
+        logger.info(f"Applying database whitelist: {dataset_config.database_whitelist}")
     dataset = DatasetFactory.get_dataset(dataset_config)
     logger.info(f"Dataset loaded: {len(dataset)} items")
     save_dataset(dataset, dataset_config.save_path)
