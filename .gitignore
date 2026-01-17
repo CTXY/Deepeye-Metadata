@@ -48,7 +48,7 @@ output/
 results/
 data/
 dataset/
-memory/
+/memory/
 visualization/
 temp.py
 test.log
