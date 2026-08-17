@@ -59,6 +59,7 @@ class DataItem(BaseModel):
     memory_schema_overrides: Optional[Dict[str, Any]] = Field(default=None, description="Schema patches/overrides derived from memory augmentation")
     memory_metadata: Optional[Dict[str, Any]] = Field(default=None, description="Per-strategy metadata for memory augmentation, including diagnostics and retrieval scores")
     guidance_hint: Optional[str] = Field(default=None, description="Historical preference-based guidance without user interaction signals; advisory hints derived from statistical patterns")
+    resolved_user_guidance: Optional[str] = Field(default=None, description="Prompt-ready guidance confirmed through user interaction; highest-priority memory for the current case")
     
     # Augmented Data Retrieval Step
     encoding_mappings: Optional[Dict[str, Dict[str, Any]]] = Field(default=None, description="The encoding mappings for columns (table.column -> encoding_mapping)")

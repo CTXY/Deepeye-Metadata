@@ -30,26 +30,37 @@ _index_path: Optional[str] = None
 
 
 def _load_offline_memory_index(path: str) -> Dict[Tuple[str, int], dict]:
-    """Load jsonl; each line must be one record with db_id and question_id."""
+    """Load legacy JSONL or an online-guidance JSON array into one case index."""
     global _index_cache, _index_path
     path_str = str(Path(path).resolve())
     if _index_cache is not None and _index_path == path_str:
         return _index_cache
-    index: Dict[Tuple[str, int], dict] = {}
     with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            obj = json.loads(line)
-            if "db_id" not in obj or "question_id" not in obj:
-                logger.warning(
-                    "Skip offline memory line without db_id/question_id (expected context-graph jsonl)"
-                )
-                continue
-            db_id = obj["db_id"]
-            qid = int(obj["question_id"])
-            index[(str(db_id), qid)] = obj
+        raw = f.read()
+
+    stripped = raw.lstrip()
+    if stripped.startswith("["):
+        parsed = json.loads(raw)
+        if not isinstance(parsed, list):
+            raise ValueError(f"Expected a JSON array in online guidance export: {path}")
+        records = parsed
+    else:
+        records = [json.loads(line) for line in raw.splitlines() if line.strip()]
+
+    index: Dict[Tuple[str, int], dict] = {}
+    for obj in records:
+        if not isinstance(obj, dict):
+            raise ValueError(f"Memory record must be an object: {path}")
+        db_id = obj.get("db_id", obj.get("database_id"))
+        qid = obj.get("question_id", obj.get("case_index"))
+        if db_id is None or qid is None:
+            raise ValueError(
+                "Memory record requires db_id/question_id or database_id/case_index"
+            )
+        key = (str(db_id), int(qid))
+        if key in index:
+            raise ValueError(f"Duplicate memory record for {key}: {path}")
+        index[key] = obj
     _index_cache = index
     _index_path = path_str
     return index
@@ -204,6 +215,70 @@ def _relevant_columns_from_record(record: dict) -> List[str]:
         for c in uc.get("columns") or []:
             cols.append(c)
     return _dedupe_preserve_order(cols)
+
+
+_QUALIFIED_COLUMN_RE = re.compile(
+    r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\."
+    r'(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][A-Za-z0-9_]*))'
+)
+
+
+def _online_guidance_columns(record: dict) -> List[str]:
+    """Extract explicit table-qualified columns from selected guidance messages."""
+    columns: List[str] = []
+    for item in record.get("guidance") or []:
+        if not isinstance(item, dict) or item.get("candidate_key") == "none_of_these":
+            continue
+        message = item.get("message")
+        if not isinstance(message, str):
+            continue
+        for match in _QUALIFIED_COLUMN_RE.finditer(message):
+            table = match.group(1)
+            column = next(group for group in match.groups()[1:] if group is not None)
+            columns.append(f"{table}.{column}")
+    return _dedupe_preserve_order(columns)
+
+
+def _clear_legacy_guidance_fields(data_item: DataItem) -> None:
+    data_item.mapping_hint = None
+    data_item.mapping_historical_qa = None
+    data_item.guidance_hint = None
+    data_item.mapping_linked_tables_and_columns = None
+    data_item.database_schema_after_mapping = None
+
+
+def _ensure_online_guidance_data(data_item: DataItem, record: dict) -> None:
+    _clear_legacy_guidance_fields(data_item)
+    data_item.resolved_user_guidance = None
+
+    exported_question = record.get("question")
+    if not isinstance(exported_question, str) or exported_question.strip() != data_item.question.strip():
+        raise ValueError(
+            "Online guidance question mismatch for "
+            f"database_id={data_item.database_id}, question_id={data_item.question_id}"
+        )
+
+    status = record.get("status")
+    if status == "NO_GUIDANCE":
+        return
+    if status != "GUIDANCE":
+        raise ValueError(f"Unsupported online guidance status: {status!r}")
+
+    downstream_guidance = record.get("downstream_guidance")
+    if not isinstance(downstream_guidance, str) or not downstream_guidance.strip():
+        raise ValueError("GUIDANCE record requires non-empty downstream_guidance")
+    data_item.resolved_user_guidance = downstream_guidance.strip()
+
+    full_schema = data_item.database_schema_after_value_retrieval or data_item.database_schema
+    relevant_columns = _online_guidance_columns(record)
+    linked = relevant_columns_to_linked_schema(relevant_columns, full_schema)
+    if not linked:
+        return
+    data_item.mapping_linked_tables_and_columns = linked
+    base_schema = data_item.database_schema_after_schema_linking or full_schema
+    data_item.database_schema_after_mapping = augment_schema_with_memory_columns(
+        base_schema, linked, full_schema
+    )
 
 
 def _is_filter_fragment(frag: str) -> bool:
@@ -635,6 +710,10 @@ def ensure_mapping_data(
         )
         return
 
+    if format_type == "online_guidance":
+        _ensure_online_guidance_data(data_item, record)
+        return
+
     if format_type == "wo_user_interaction":
         # New format: only guidance_content, no user_choices
         guidance_hint = format_wo_interaction_guidance_hint(record, include_reasoning)
@@ -685,4 +764,3 @@ def ensure_mapping_data(
     if not data_item.mapping_hint and not data_item.mapping_historical_qa:
         data_item.mapping_linked_tables_and_columns = None
         data_item.database_schema_after_mapping = None
-

@@ -364,6 +364,8 @@ You are an SQL database expert tasked with correcting a SQL query. An external S
 
 [IMPORTANT]
 Your are NOT ALLOWED to do any other modifications which are not listed in given suggestions.
+When the hint contains resolved user-interaction guidance, treat it as authoritative
+within the scope of the given modification suggestions. Do not use it to make unrelated changes.
 
 # Output Format:
 Please respond with XML code structured as follows.
@@ -411,6 +413,7 @@ Given the DB info and question, there are two candidate queries. There is correc
 - Carefully analyze the user question, database schema, and both candidate SQL queries
 - For each SQL, consider its logic, correctness, and the provided execution result
 - Compare the two SQLs in terms of their ability to answer the question accurately and completely
+- When resolved user-interaction guidance is present in the hint, use compliance with it as a decision criterion
 - You can only select minimum columns requested by the user question
 - Give preference to SQL Candidate A unless SQL Candidate B clearly demonstrates superiority or SQL Candidate A has obvious flaws
 - In <result>, output 'A' or 'B' (just the letter/word):

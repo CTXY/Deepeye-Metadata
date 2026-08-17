@@ -68,10 +68,67 @@ class ContextGraphMemoryAugmentor(MemoryAugmentor):
         format_type = self.strategy_config.get("format_type", "with_user_interaction")
         include_reasoning = self.strategy_config.get("include_reasoning", False)
 
+        record = get_offline_memory_record(
+            data_item.database_id, data_item.question_id, mapping_path
+        )
+        if format_type == "online_guidance" and record is None:
+            raise ValueError(
+                "No online guidance record for "
+                f"database_id={data_item.database_id}, question_id={data_item.question_id}"
+            )
+
         ensure_mapping_data(data_item, mapping_path, format_type, include_reasoning)
 
         memory_items = list(getattr(data_item, "memory_items", None) or [])
         historical_qa = list(getattr(data_item, "mapping_historical_qa", None) or [])
+
+        if format_type == "online_guidance":
+            guidance_items = record.get("guidance") or []
+            for idx, guidance_item in enumerate(guidance_items, start=1):
+                if not isinstance(guidance_item, dict):
+                    raise ValueError(
+                        "Online guidance entries must be objects for "
+                        f"question_id={data_item.question_id}"
+                    )
+                memory_items.append(
+                    {
+                        "strategy": self.name,
+                        "type": "resolved_user_guidance",
+                        "rank": idx,
+                        "role_id": guidance_item.get("role_id"),
+                        "candidate_key": guidance_item.get("candidate_key"),
+                        "message": guidance_item.get("message"),
+                        "cited_query_ids": guidance_item.get("cited_query_ids") or [],
+                    }
+                )
+            setattr(data_item, "memory_items", memory_items)
+
+            augmented_schema = getattr(data_item, "database_schema_after_mapping", None)
+            if augmented_schema:
+                setattr(data_item, "memory_schema_overrides", augmented_schema)
+
+            metadata = dict(getattr(data_item, "memory_metadata", None) or {})
+            metadata[self.name] = {
+                "enabled": True,
+                "mapping_path": mapping_path,
+                "format_type": format_type,
+                "status": record.get("status"),
+                "graph_revision": record.get("graph_revision"),
+                "n_guidance": len(guidance_items),
+                "has_resolved_user_guidance": bool(
+                    getattr(data_item, "resolved_user_guidance", None)
+                ),
+                "has_mapping_schema": bool(augmented_schema),
+            }
+            setattr(data_item, "memory_metadata", metadata)
+
+            if self.strategy_config.get("log_formatted_blocks"):
+                logger.info(
+                    f"ContextGraph online guidance | question_id={data_item.question_id} "
+                    f"db_id={data_item.database_id} status={record.get('status')}\n"
+                    + (getattr(data_item, "resolved_user_guidance", None) or "(no guidance)")
+                )
+            return
 
         # Handle wo_user_interaction format
         if format_type == "wo_user_interaction":
@@ -134,9 +191,6 @@ class ContextGraphMemoryAugmentor(MemoryAugmentor):
                 }
             )
 
-        record = get_offline_memory_record(
-            data_item.database_id, data_item.question_id, mapping_path
-        )
         if record:
             for idx, uc in enumerate(record.get("user_choices") or [], start=1):
                 if not isinstance(uc, dict):

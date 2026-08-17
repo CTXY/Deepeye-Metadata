@@ -5,7 +5,6 @@ from app.config import config
 
 
 class PromptFactory:
-    
     @staticmethod
     def get_memory_aware_schema_profile(
         data_item,
@@ -35,7 +34,6 @@ class PromptFactory:
             schema_metadata=schema_metadata,
             join_relationships=join_relationships
         )
-    
     @staticmethod
     def get_enhanced_database_schema_profile(
         data_item,
@@ -75,18 +73,22 @@ class PromptFactory:
         use_caf_mapping: bool = False,
         use_memory: bool = True,
     ) -> str:
-        """
-        Get hint string for SQL generation/revision/selection prompts.
-        When use_caf_mapping is True and data_item has mapping_hint, return evidence + mapping_hint.
-        Priority: mapping_hint (user-verified) > guidance_hint (historical patterns)
-        """
-        from app.pipeline.memory_augmentation.context_graph_offline_loader import (
-            format_mapping_historical_qa,
-        )
-
+        """Build stage hints with resolved user guidance ahead of advisory memory."""
         parts: List[str] = []
         if getattr(data_item, "evidence", None):
             parts.append(data_item.evidence)
+
+        resolved_user_guidance = (
+            getattr(data_item, "resolved_user_guidance", None) if use_memory else None
+        )
+        if resolved_user_guidance:
+            parts.append(
+                "## Resolved user-interaction guidance (highest priority)\n"
+                "These decisions were confirmed through user interaction for this case. "
+                "Follow them when constructing or comparing SQL. Supporting examples show "
+                "adaptable structure; do not copy literals that are unrelated to the current question.\n\n"
+                + resolved_user_guidance
+            )
 
         if use_caf_mapping:
             mapping_hint = getattr(data_item, "mapping_hint", None)
@@ -94,13 +96,20 @@ class PromptFactory:
                 parts.append(mapping_hint)
             mapping_historical_qa = getattr(data_item, "mapping_historical_qa", None)
             if mapping_historical_qa:
+                from app.pipeline.memory_augmentation.context_graph_offline_loader import (
+                    format_mapping_historical_qa,
+                )
+
                 parts.append(format_mapping_historical_qa(mapping_historical_qa))
 
         if use_memory:
-            # Add guidance_hint if mapping_hint is not available
-            # Priority: mapping_hint (user-verified) > guidance_hint (historical patterns)
+            # Advisory historical guidance must not compete with a resolved user decision.
             guidance_hint = getattr(data_item, "guidance_hint", None)
-            if guidance_hint and not getattr(data_item, "mapping_hint", None):
+            if (
+                guidance_hint
+                and not resolved_user_guidance
+                and not getattr(data_item, "mapping_hint", None)
+            ):
                 parts.append(guidance_hint)
             if getattr(data_item, "memory_summary", None):
                 parts.append(data_item.memory_summary)
@@ -162,7 +171,7 @@ class PromptFactory:
             QUERY=sql, 
             SUGGESTIONS=suggestions
         )
-    
+
     @staticmethod
     def format_br_pair_selection_prompt(database_schema: str, question: str, hint: str, query_a: str, result_a: str, query_b: str, result_b: str) -> str:
         return BR_PAIR_SELECTION_PROMPT.format(
@@ -174,4 +183,3 @@ class PromptFactory:
             QUERY_B=query_b, 
             RESULT_B=result_b
         )
-    
