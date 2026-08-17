@@ -4,6 +4,7 @@ from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
 from app.db_utils import get_database_schema_profile
+from app.config import config
 from typing import Dict, List, Any, Optional, Tuple
 import re
 
@@ -13,11 +14,28 @@ class DCGenerator(BaseSQLGenerator):
     def generate(self, data_item: DataItem, llm: LLM, sampling_budget: int = 1) -> Tuple[List[str], Dict[str, int]]:
         if sampling_budget == 0:
             return [], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-        # Get enhanced database schema profile (includes schema_metadata and join_relationships)
-        database_schema_profile = PromptFactory.get_enhanced_database_schema_profile(data_item)
-        # Get SQL guidance (low confidence reference material)
-        sql_guidance = PromptFactory.get_sql_guidance(data_item)
-        prompt = PromptFactory.format_dc_sql_generation_prompt(database_schema_profile, data_item.question, data_item.evidence, sql_guidance).strip()
+        use_memory = PromptFactory.should_use_memory("generation")
+        use_caf_mapping = PromptFactory.should_use_context_graph("generation")
+        database_schema_profile = PromptFactory.get_enhanced_database_schema_profile(
+            data_item,
+            use_caf_mapping=use_caf_mapping,
+            use_memory=use_memory,
+        )
+        hint = PromptFactory.get_sql_generation_hint(
+            data_item,
+            use_caf_mapping=use_caf_mapping,
+            use_memory=use_memory,
+        )
+        prompt = PromptFactory.format_dc_sql_generation_prompt(
+            database_schema_profile,
+            data_item.question,
+            hint,
+        ).strip()
+
+        logger.debug(
+            f"[SQL_GENERATION][DC] qid={getattr(data_item, 'question_id', 'N/A')} "
+            f"db={getattr(data_item, 'database_id', 'N/A')} prompt:\n{prompt}"
+        )
         
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         all_sql_candidates = []

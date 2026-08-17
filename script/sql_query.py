@@ -363,16 +363,11 @@ def main():
     DB_PATH = "/home/yangchenyu/DeepEye-SQL-Metadata/dataset/bird/databases/dev_databases/california_schools/california_schools.sqlite"
     
     # 运行模式选择 (选择其中一个)
-    MODE = "compare"  # 可选: "interactive", "query", "tables", "schema", "compare"
+    MODE = "query"  # 可选: "interactive", "query", "tables", "schema", "compare"
     
     # 查询模式下的SQL语句
     # 比较两列是否完全相同，输出最终判断结果
-    QUERY = '''SELECT T1.School, T1.Street
-FROM schools AS T1
-INNER
-JOIN frpm AS T2
-ON T1.CDSCode = T2.CDSCode
-WHERE T2.`Enrollment (K-12)` - T2.`Enrollment (Ages 5-17)` > 30'''
+    QUERY = '''SELECT \n    COUNT(s.CDSCode) AS magnet_k8_multiple_provision_count,\n    s.City,\n    COUNT(s.CDSCode) AS schools_in_city\nFROM \n    schools s\nJOIN \n    frpm f ON s.CDSCode = f.CDSCode\nWHERE \n    s.Magnet = 1 \n    AND s.GSserved = 'K-8' \n    AND f.\"NSLP Provision Status\" = 'Multiple Provision Types'\nGROUP BY \n    s.City\nORDER BY \n    schools_in_city DESC;'''
 
     # SELECT T1.PostId, T2.Name FROM postHistory AS T1 INNER JOIN badges AS T2 ON T1.UserId = T2.UserId WHERE T1.UserDisplayName = 'Samuel' AND STRFTIME('%Y', T1.CreationDate) = '2013' AND STRFTIME('%Y', T2.Date) = '2013'
 
@@ -381,12 +376,12 @@ WHERE T2.`Enrollment (K-12)` - T2.`Enrollment (Ages 5-17)` > 30'''
     # '''
     
     # 比较模式下的两个SQL语句
-    QUERY1 = '''SELECT COUNT(T1.CDSCode) FROM frpm AS T1 INNER JOIN satscores AS T2 ON T1.CDSCode = T2.cds WHERE T1.`Charter Funding Type` = 'Directly funded' AND T1.`County Name` = 'Fresno' AND T2.NumTstTakr <= 250'''
+    QUERY1 = '''SELECT COUNT(T1.account_id) FROM account AS T1 INNER JOIN loan AS T2 ON T1.account_id = T2.account_id WHERE T2.date BETWEEN '1995-01-01' AND '1997-12-31' AND T1.frequency = 'POPLATEK MESICNE' AND T2.amount >= 250000;'''
     
-    QUERY2 = '''SELECT COUNT(T1.CDSCode) FROM frpm AS T1 INNER JOIN satscores AS T2 ON T1.CDSCode = T2.cds WHERE T1.`Charter Funding Type` = 'Directly funded' AND T1.`County` = 'Fresno' AND T2.NumTstTakr <= 250'''
+    QUERY2 = '''select count(loan.loan_id) from loan inner join account on loan.account_id = account.account_id where loan.amount > 250000 and account.frequency = 'POPLATEK MESICNE' and loan.date BETWEEN '1995-01-01' AND '1997-12-31';'''
     
     # 查看表结构模式下的表名
-    TABLE_NAME = "california_schools"
+    TABLE_NAME = "card_games"
     
     # 最大显示行数
     MAX_ROWS = 100

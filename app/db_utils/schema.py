@@ -111,7 +111,7 @@ def _normalize_description_string(description: str) -> str:
 def load_database_description(db_id: str, database_dir: Path, use_database_description: bool = True) -> Dict[str, Dict[str, Dict[str, Any]]]:
     """
     Load database description from database.
-    
+
     Args:
         db_id: Database ID.
         database_dir: Directory of current database.
@@ -122,7 +122,7 @@ def load_database_description(db_id: str, database_dir: Path, use_database_descr
     """
     if not use_database_description:
         return {}
-    
+
     db_description_dir = database_dir / "database_description"
     if not db_description_dir.exists():
         logger.warning(f"Database description for database {db_id} does not exist, skipping...")
@@ -152,6 +152,105 @@ def load_database_description(db_id: str, database_dir: Path, use_database_descr
             }
         database_description[table_name_lower] = table_description
     return database_description
+
+
+@lru_cache(maxsize=1000)
+def load_database_schema_dict_with_custom_description_path(
+    db_path: Union[str, Path],
+    use_database_description: bool = True,
+    custom_description_path: Optional[Path] = None
+) -> Dict[str, Any]:
+    """
+    Load database schema with a custom description path.
+
+    This is useful for datasets like cleaned-mini-bird where the database description
+    files are located in a different directory than the database files.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        use_database_description: Whether to load database description files.
+        custom_description_path: Custom path to look for database_description directory.
+                                 If None, uses db_path.parent.
+
+    Returns:
+        Database schema dictionary.
+    """
+    db_path = Path(db_path) if isinstance(db_path, str) else db_path
+    db_id = db_path.stem
+
+    # Use custom description path if provided
+    description_dir = custom_description_path if custom_description_path else db_path.parent
+    database_description = load_database_description(db_id, description_dir, use_database_description)
+
+    database_schema_dict = {}
+    database_schema_dict["db_id"] = db_id
+    database_schema_dict["db_path"] = str(db_path)
+    database_schema_dict["tables"] = {}
+    table_names = load_table_names(db_path)
+    for table_name in table_names:
+        table_schema_dict = {}
+        table_schema_dict["table_name"] = table_name
+        table_schema_dict["columns"] = {}
+
+        # Load primary keys
+        primary_keys = load_primary_keys(db_path, table_name)
+
+        # Load foreign keys
+        foreign_keys = load_foreign_keys(db_path, table_name)
+
+        # Load columns
+        column_names_and_types = load_column_names_and_types(db_path, table_name)
+        for column_name, column_type in column_names_and_types:
+            column_schema_dict = {}
+            column_schema_dict["column_name"] = column_name
+            column_schema_dict["column_type"] = column_type
+
+            # Set primary keys
+            if column_name.lower() in [pk.lower() for pk in primary_keys]:
+                column_schema_dict["primary_key"] = True
+            else:
+                column_schema_dict["primary_key"] = False
+
+            # Set foreign keys
+            column_schema_dict["foreign_keys"] = []
+            for source_table_name, source_column_name, target_table_name, target_column_name in foreign_keys:
+                assert source_table_name == table_name, f"Source table name is not the same as the table name: {source_table_name} != {table_name}"
+                if source_column_name.lower() == column_name.lower():
+                    column_schema_dict["foreign_keys"].append((target_table_name, target_column_name))
+
+            # Set column description
+            descriptions = []
+            if database_description.get(table_name.lower(), {}).get(column_name.lower(), {}).get("expanded_column_name", "") != "":
+                descriptions.append(f"Expanded Column Name: {database_description.get(table_name.lower(), {}).get(column_name.lower(), {}).get('expanded_column_name', '')}")
+            if database_description.get(table_name.lower(), {}).get(column_name.lower(), {}).get("column_description", "") != "":
+                descriptions.append(f"Column Description: {database_description.get(table_name.lower(), {}).get(column_name.lower(), {}).get('column_description', '')}")
+            if database_description.get(table_name.lower(), {}).get(column_name.lower(), {}).get("value_description", "") != "":
+                descriptions.append(f"Value Description: {database_description.get(table_name.lower(), {}).get(column_name.lower(), {}).get('value_description', '')}")
+            column_schema_dict["description"] = " | ".join(descriptions) if descriptions else ""
+
+            # Set value examples
+            if use_database_description and column_type.upper() != "BLOB":
+                column_schema_dict["value_examples"] = load_value_examples(db_path, table_name, column_name)
+            else:
+                column_schema_dict["value_examples"] = []
+
+            if use_database_description:
+                column_schema_dict["value_statistics"] = load_value_statistics(db_path, table_name, column_name)
+            else:
+                column_schema_dict["value_statistics"] = None
+
+            table_schema_dict["columns"][column_name] = column_schema_dict
+        database_schema_dict["tables"][table_name] = table_schema_dict
+
+    # Special cases for spider databases, some foreign key columns are not in the database
+    # So we need to check if the foreign key columns are in the database
+    for table_name, table_schema_dict in database_schema_dict["tables"].items():
+        for column_name, column_schema_dict in table_schema_dict["columns"].items():
+            for target_table_name, target_column_name in column_schema_dict["foreign_keys"]:
+                if target_table_name not in database_schema_dict["tables"] or target_column_name not in database_schema_dict["tables"][target_table_name]["columns"]:
+                    column_schema_dict["foreign_keys"].remove((target_table_name, target_column_name))
+
+    return database_schema_dict
 
 
 def load_value_statistics(db_path: str, table_name: str, column_name: str) -> Dict[str, Any]:
@@ -250,15 +349,21 @@ def get_table_profile(table_schema_dict: Dict[str, Any]) -> str:
     representation += f"[\n"
     column_representations = []
     for column_name, column_schema_dict in table_schema_dict["columns"].items():
-        column_representation = f"`{column_name}`: {column_schema_dict["column_type"]}"
+        column_representation = f"`{column_name}`: {column_schema_dict['column_type']}"
         if column_schema_dict["description"]:
-            column_representation += f" | {column_schema_dict["description"]}"
+            column_representation += f" | {column_schema_dict['description']}"
         if column_schema_dict["value_statistics"]:
-            column_representation += f" | Value Statistics: {column_schema_dict["value_statistics"]["null_count"]} NULL values, {column_schema_dict["value_statistics"]["distinct_count"]} distinct values, {column_schema_dict["value_statistics"]["total_count"]} total values"
+            column_representation += (
+                " | Value Statistics: "
+                f"{column_schema_dict['value_statistics']['null_count']} NULL values, "
+                f"{column_schema_dict['value_statistics']['distinct_count']} distinct values, "
+                f"{column_schema_dict['value_statistics']['total_count']} total values"
+            )
         if column_schema_dict["value_examples"]:
-            column_representation += f" | Value Examples: {column_schema_dict["value_examples"]}"
+            column_representation += f" | Value Examples: {column_schema_dict['value_examples']}"
         column_representations.append(f"({column_representation})")
-    representation += f"{',\n'.join(column_representations)}\n"
+    joined_columns = ",\n".join(column_representations)
+    representation += f"{joined_columns}\n"
     representation += f"]\n"
 
     all_primary_keys = []
@@ -327,15 +432,20 @@ def get_database_schema_profile(
         non_pk_columns = [(col_name, col_schema) for col_name, col_schema in columns if not col_schema["primary_key"]]
         ordered_columns = pk_columns + non_pk_columns
         for column_name, column_schema_dict in ordered_columns:
-            column_profile = f"`{column_name}`: {column_schema_dict["column_type"]}"
+            column_profile = f"`{column_name}`: {column_schema_dict['column_type']}"
             if column_schema_dict["primary_key"]:
                 column_profile += f" | Primary Key"
             if column_schema_dict["description"]:
-                column_profile += f" | {column_schema_dict["description"]}"
+                column_profile += f" | {column_schema_dict['description']}"
             if column_schema_dict["value_statistics"]:
-                column_profile += f" | Value Statistics: {column_schema_dict["value_statistics"]["null_count"]} NULL values, {column_schema_dict["value_statistics"]["distinct_count"]} distinct values, {column_schema_dict["value_statistics"]["total_count"]} total values"
+                column_profile += (
+                    " | Value Statistics: "
+                    f"{column_schema_dict['value_statistics']['null_count']} NULL values, "
+                    f"{column_schema_dict['value_statistics']['distinct_count']} distinct values, "
+                    f"{column_schema_dict['value_statistics']['total_count']} total values"
+                )
             if column_schema_dict["value_examples"]:
-                column_profile += f" | Value Examples: {column_schema_dict["value_examples"]}"
+                column_profile += f" | Value Examples: {column_schema_dict['value_examples']}"
 
             # Append long_description from schema_metadata if available
             if schema_metadata:
@@ -346,7 +456,8 @@ def get_database_schema_profile(
                         column_profile += f" | [Details] {long_desc}"
             
             column_profiles.append(f"({column_profile})")
-        profile += f"{',\n'.join(column_profiles)}\n"
+        joined_column_profiles = ",\n".join(column_profiles)
+        profile += f"{joined_column_profiles}\n"
         profile += f"]\n"
 
     # Add foreign keys section
@@ -360,7 +471,8 @@ def get_database_schema_profile(
                     all_foreign_keys.append(f"`{table_name}`.`{column_name}` = `{target_table_name}`.`{target_column_name}`")
     if all_foreign_keys:
         profile += "Foreign Keys:\n"
-        profile += f"{'\n'.join(all_foreign_keys)}\n"
+        joined_foreign_keys = "\n".join(all_foreign_keys)
+        profile += f"{joined_foreign_keys}\n"
     
     # Add join relationships section (if provided)
     if join_relationships:

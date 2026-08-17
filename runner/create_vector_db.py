@@ -1,5 +1,9 @@
 import sys
 sys.path.append(".")
+from runner._config_cli import configure_from_cli
+
+configure_from_cli()
+
 from pathlib import Path
 import traceback
 import shutil
@@ -17,6 +21,7 @@ def make_vector_db_for_db_id(db_path: str, vector_database_config: VectorDatabas
             use_qwen3_embedding=vector_database_config.use_qwen3_embedding,
             local_files_only=vector_database_config.local_files_only,
             normalize_embeddings=vector_database_config.normalize_embeddings,
+            device=vector_database_config.device,
             base_url=vector_database_config.base_url,
             api_key=vector_database_config.api_key,
         )

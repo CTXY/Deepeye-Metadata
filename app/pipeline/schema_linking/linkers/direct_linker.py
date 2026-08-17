@@ -11,6 +11,18 @@ import json
 
 
 class DirectLinker(BaseSchemaLinker):
+
+    @staticmethod
+    def _record_parse_failure(data_item: DataItem, response: str) -> None:
+        debug_info = getattr(data_item, "schema_linking_debug", None)
+        if debug_info is None:
+            debug_info = {}
+            setattr(data_item, "schema_linking_debug", debug_info)
+        direct_debug = debug_info.setdefault("direct_linking", {})
+        direct_debug["parse_failure_count"] = int(direct_debug.get("parse_failure_count", 0)) + 1
+        samples = direct_debug.setdefault("parse_failure_samples", [])
+        if len(samples) < 5:
+            samples.append(response)
     
     def link(
         self, 
@@ -39,9 +51,12 @@ class DirectLinker(BaseSchemaLinker):
                     parsed_selection = self._parse_llm_response(response, data_item.database_schema_after_value_retrieval)
                     if parsed_selection:
                         all_selections.append(parsed_selection)
+                    else:
+                        self._record_parse_failure(data_item, response)
                 except Exception as e:
                     logger.warning(f"Error parsing LLM response: {e}")
                     logger.warning(f"Response content: {response}")
+                    self._record_parse_failure(data_item, response)
                     continue
             total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
             total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
@@ -50,7 +65,10 @@ class DirectLinker(BaseSchemaLinker):
         return merge_schema_linking_results(all_selections), total_token_usage
     
     def _parse_llm_response(self, response: str, database_schema: Dict[str, Any]) -> Optional[Dict[str, List[str]]]:
-        # restore the stop token: </result>
+        # Normalize: some API providers include the stop token in the response,
+        # others don't. Strip it if present, then re-append so the regex always works.
+        if response.endswith("</result>"):
+            response = response[:-len("</result>")]
         response += "</result>"
         
         try:

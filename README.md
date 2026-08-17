@@ -154,10 +154,10 @@ uv run runner/run_value_retrieval.py
 uv run runner/run_schema_linking.py
 ```
 
-#### 5. Augmented Data Retrieval
+#### 5. Augmented Memory Data Retrieval
 
 ```bash
-uv run runner/run_augmented_data_retrieval.py
+uv run runner/run_memory_augmentation.py
 ```
 
 #### 6. SQL Generation

@@ -7,6 +7,7 @@ __all__ = [
     "load_primary_keys",
     "load_foreign_keys",
     "load_database_schema_dict",
+    "load_database_schema_dict_with_custom_description_path",
     "get_table_profile",
     "get_database_schema_profile",
     "map_lower_table_name_to_original_table_name",

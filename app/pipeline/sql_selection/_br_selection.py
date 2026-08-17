@@ -32,7 +32,10 @@ class BRSelectionRunner:
         """
         Parse the llm response and return the eval scores.
         """
-        # restore the stop token: </result>
+        # Normalize: some API providers include the stop token in the response,
+        # others don't. Strip it if present, then re-append so the regex always works.
+        if response.endswith("</result>"):
+            response = response[:-len("</result>")]
         response += "</result>"
         
         try:

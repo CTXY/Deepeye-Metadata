@@ -3,9 +3,8 @@ from app.dataset import DataItem
 from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
-from app.db_utils import execute_sql, get_database_schema_profile
-from typing import Dict, List, Any, Optional, Tuple
-import re
+from app.db_utils import execute_sql
+from typing import Dict, List, Tuple
 from collections import Counter
 
 
@@ -17,11 +16,25 @@ class ResultChecker(BaseChecker):
         if execution_result.result_type == "success":
             return sql, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         else:
-            # Get enhanced database schema profile (includes schema_metadata and join_relationships)
-            database_schema_profile = PromptFactory.get_enhanced_database_schema_profile(data_item)
-            # Get SQL guidance (low confidence reference material)
-            sql_guidance = PromptFactory.get_sql_guidance(data_item)
-            prompt = PromptFactory.format_execution_checker_prompt(database_schema_profile, data_item.question, data_item.evidence, sql, execution_result.result_table_str, sql_guidance)
+            use_memory = PromptFactory.should_use_memory("revision")
+            use_caf_mapping = PromptFactory.should_use_context_graph("revision")
+            database_schema_profile = PromptFactory.get_enhanced_database_schema_profile(
+                data_item,
+                use_caf_mapping=use_caf_mapping,
+                use_memory=use_memory,
+            )
+            hint = PromptFactory.get_sql_generation_hint(
+                data_item,
+                use_caf_mapping=use_caf_mapping,
+                use_memory=use_memory,
+            )
+            prompt = PromptFactory.format_execution_checker_prompt(
+                database_schema_profile,
+                data_item.question,
+                hint,
+                sql,
+                execution_result.result_table_str,
+            )
             total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             all_sql_candidates = []
             while len(all_sql_candidates) < sampling_budget:

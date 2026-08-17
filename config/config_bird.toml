@@ -1,0 +1,150 @@
+########## Dataset configuration ##########
+[dataset]
+type = "bird"
+split = "dev"
+root_path = "data/bird"
+save_path = "workspace/dataset/bird/sub_dev_school_and_card.pkl"
+database_whitelist = ["card_games", "california_schools"]
+use_database_description = true
+
+########## Vector database configuration ##########
+[vector_database]
+embedding_model_name_or_path = "Qwen/Qwen3-Embedding-0.6B"
+use_qwen3_embedding = true
+local_files_only = false
+normalize_embeddings = false
+device = "cpu"
+store_root_path = "workspace/vector_database/bird/dev"
+max_value_length = 100
+lower_meta_data = true
+
+########## Value retrieval configuration ##########
+[value_retrieval]
+n_results = 5
+n_parallel = 16
+save_path = "workspace/value_retrieval/bird/sub_dev_school_and_card_latter50.pkl"
+
+[value_retrieval.llm]
+model = "qwen3-30b"
+base_url = "http://0.0.0.0:8000/v1"
+api_key = "dummy"
+max_tokens = 4096
+temperature = 0.7
+api_type = "openai"
+
+########## Schema linking configuration ##########
+[schema_linking]
+n_parallel = 16
+save_path = "workspace/schema_linking/bird/sub_dev_school_and_card_latter50.pkl"
+direct_linking_sampling_budget = 8
+reversed_linking_sampling_budget = 8
+value_distance_threshold = 0.02
+use_caf_metadata = false 
+
+[schema_linking.llm]
+model = "qwen3-30b"
+base_url = "http://0.0.0.0:8000/v1"
+api_key = "dummy"
+max_tokens = 4096
+temperature = 0.7
+api_type = "openai"
+
+
+########## Memory augmentation configuration ##########
+[memory_augmentation]
+enabled = true
+# where memory-augmented dataset will be saved
+save_path = "workspace/memory_augmentation/bird/school_and_card_latter50_context_graph_wo_user_reasoning.pkl"
+
+# Context Graph Strategy:
+strategies = ["context_graph"]
+
+# Historical QA Strategy
+# strategies = ["historical_qa"]
+
+# A-mem pre-retrieval strategy
+# strategies = ["amem_retrieval"]
+
+# whether to use memory in each stage
+use_in_generation = true
+use_in_revision = true
+use_in_selection = true
+
+[memory_augmentation.context_graph]
+# Path to the JSONL file
+mapping_decisions_path = "workspace/memory/context_graph_memory/wo_user_interaction/offline_memory_augmentation.jsonl"
+
+# Format type: "with_user_interaction" or "wo_user_interaction"
+format_type = "wo_user_interaction"
+
+# Whether to include reasoning in guidance (only for wo_user_interaction format)
+include_reasoning = true
+
+# When true, log full formatted mapping_hint + historical block per item at INFO (verbose).
+log_formatted_blocks = true
+
+[memory_augmentation.historical_qa]
+data_path = "workspace/historical_qa/bird/dev_historical_qa.jsonl"
+
+# embedding model config
+embedding_model_name_or_path = "Qwen/Qwen3-Embedding-0.6B"
+use_qwen3_embedding = true
+local_files_only = false
+normalize_embeddings = false
+device = "cpu"
+
+# retrieval behavior
+top_k = 5
+same_database_only = true          # only retrieve QA from same database_id (recommended for BIRD)
+
+[memory_augmentation.amem_retrieval]
+data_path = "workspace/memory/A-mem/bird/amem_retrieval_dev.jsonl"
+top_k = 5
+
+
+########## SQL generation configuration ##########
+[sql_generation]
+n_parallel = 2
+save_path = "workspace/sql_generation/bird/school_and_card_latter50_context_graph_wo_user_reasoning.pkl"
+dc_sampling_budget = 8
+skeleton_sampling_budget = 8
+icl_sampling_budget = 8
+icl_few_shot_examples_path = "data/bird/dev/few_shots.json"
+
+[sql_generation.llm]
+model = "qwen3-30b"
+base_url = "http://0.0.0.0:8000/v1"
+api_key = "dummy"
+max_tokens = 8192
+temperature = 0.7
+api_type = "openai"
+
+########## SQL revision configuration ##########
+[sql_revision]
+n_parallel = 2
+save_path = "workspace/sql_revision/bird/school_and_card_latter50_context_graph_wo_user_reasoning.pkl"
+checker_sampling_budget = 5
+
+[sql_revision.llm]
+model = "qwen3-30b"
+base_url = "http://0.0.0.0:8000/v1"
+api_key = "dummy"
+max_tokens = 8192
+temperature = 0.7
+api_type = "openai"
+
+########## SQL selection configuration ##########
+[sql_selection]
+n_parallel = 2
+save_path = "workspace/sql_selection/bird/school_and_card_latter50_context_graph_wo_user_reasoning.pkl"
+filter_top_k_sql = 2
+evaluator_sampling_budget = 16
+shortcut_consistency_score_threshold = 0.6
+
+[sql_selection.llm]
+model = "qwen3-30b"
+base_url = "http://0.0.0.0:8000/v1"
+api_key = "dummy"
+max_tokens = 8192
+temperature = 0.7
+api_type = "openai"

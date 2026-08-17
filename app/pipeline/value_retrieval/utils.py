@@ -21,8 +21,11 @@ def extract_keywords(question: str, evidence: str, llm: LLM, max_retry: int = 5)
             total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
             total_token_usage["total_tokens"] += token_usage["total_tokens"]
             
-            # restore the stop token: </result>
-            content = response[0].content + "</result>"
+            # Normalize: strip trailing </result> if already present (API included stop token)
+            content = response[0].content
+            if content.endswith("</result>"):
+                content = content[:-len("</result>")]
+            content += "</result>"
             
             raw_list = re.search(r"<result>(.*?)</result>", content, re.DOTALL).group(1)
             keywords_list = json.loads(raw_list)
@@ -31,6 +34,10 @@ def extract_keywords(question: str, evidence: str, llm: LLM, max_retry: int = 5)
         except Exception as e:
             retry += 1
             logger.error(f"Error extracting keywords: {e}")
+    
+    if keywords_list is None:
+        logger.warning("All retries exhausted for keyword extraction; using empty keyword list")
+        keywords_list = []
     
     # post process the keywords_list
     processed_keywords = set()
@@ -51,6 +58,13 @@ def retrieve_values_for_one_column(
     n_results: int,
     lower_meta_data: bool
 ) -> Dict[str, Any]:
+    if not keywords:
+        return {
+            "table_name": table_name.lower() if lower_meta_data else table_name,
+            "column_name": column_name.lower() if lower_meta_data else column_name,
+            "values": [],
+        }
+
     table_name = table_name.lower() if lower_meta_data else table_name
     column_name = column_name.lower() if lower_meta_data else column_name
     query_results = collection.query(

@@ -1,5 +1,7 @@
+import os
 import tomllib
 import threading
+from copy import deepcopy
 from typing import Dict, List, Optional, Literal, Any
 from pathlib import Path
 from pydantic import BaseModel, Field, model_validator
@@ -11,6 +13,7 @@ def get_project_root() -> Path:
 
 PROJECT_ROOT = get_project_root()
 WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
+CONFIG_PATH_ENV_VAR = "DEEPEYE_CONFIG_PATH"
 
 if not Path(WORKSPACE_ROOT).exists():
     Path(WORKSPACE_ROOT).mkdir(parents=True, exist_ok=True)
@@ -27,13 +30,14 @@ class LLMConfig(BaseModel):
 
 
 class DatasetConfig(BaseModel):
-    type: Literal["spider", "bird"] = Field(..., description="The type of the dataset")
-    split: Literal["dev", "test"] = Field(..., description="The split of the dataset")
+    type: Literal["spider", "bird", "cleaned-mini-bird"] = Field(..., description="The type of the dataset")
+    split: Literal["dev", "test", "full", "sql_only"] = Field(..., description="The split of the dataset")
     root_path: Optional[str] = Field(..., description="The root path of the dataset")
     save_path: str = Field(default=str(WORKSPACE_ROOT / "dataset" / f"{type}" / f"{split}.pkl"), description="The save path of the dataset")
     database_whitelist: Optional[List[str]] = Field(default=None, description="Subset of database IDs to include")
+    question_id_whitelist: Optional[List[int]] = Field(default=None, description="Subset of question IDs to include after database filtering")
     use_database_description: bool = Field(default=True, description="Whether to load database description files (expanded_column_name, column_description, value_description)")
-    
+
     @model_validator(mode="after")
     def validate_split(self):
         if self.type == "spider":
@@ -43,6 +47,10 @@ class DatasetConfig(BaseModel):
             # only dev split is supported for bird dataset
             if self.split not in ["dev"]:
                 raise ValueError(f"Invalid split: {self.split}")
+        elif self.type == "cleaned-mini-bird":
+            # cleaned-mini-bird supports "full" and "sql_only" splits
+            if self.split not in ["full", "sql_only"]:
+                raise ValueError(f"Invalid split for cleaned-mini-bird: {self.split}. Must be 'full' or 'sql_only'")
         else:
             raise ValueError(f"Invalid dataset type: {self.type}")
         return self
@@ -53,6 +61,7 @@ class VectorDatabaseConfig(BaseModel):
     use_qwen3_embedding: bool = Field(default=False, description="Whether to use Qwen3 embedding")
     local_files_only: bool = Field(default=False, description="Whether to use local files only")
     normalize_embeddings: bool = Field(default=False, description="Whether to normalize embeddings")
+    device: str = Field(default="cpu", description="Device for embedding model: 'cpu' or 'cuda'")
     base_url: Optional[str] = Field(default=None, description="The base url of the embedding model service")
     api_key: Optional[str] = Field(default=None, description="The api key of the embedding model service")
     store_root_path: str = Field(default=str(WORKSPACE_ROOT / "vector_store"), description="The root path of the vector database")
@@ -72,7 +81,10 @@ class AugmentedDataRetrievalConfig(BaseModel):
     save_path: str = Field(default=str(WORKSPACE_ROOT / "augmented_data_retrieval"), description="The save path of the augmented data retrieval result")
     semantic_search_limit: int = Field(default=20, description="The maximum number of items to retrieve from semantic search")
     guidance_top_k: int = Field(default=5, description="The top-k guidance items to retrieve")
-    use_augmented_data: bool = Field(default=True, description="Whether to use augmented data")
+    use_augmented_data: bool = Field(
+        default=False,
+        description="Deprecated. This stage is no longer used by SQL generation/revision/selection."
+    )
 
 class SchemaLinkingConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to link tables and columns")
@@ -82,7 +94,34 @@ class SchemaLinkingConfig(BaseModel):
     reversed_linking_sampling_budget: int = Field(default=5, description="The sampling budget of the reversed linking")
     value_distance_threshold: float = Field(default=0.05, description="The threshold of the value distance in value linking")
     use_caf_metadata: bool = Field(default=False, description="Whether to use CAF metadata to enhance schema linking")
-    
+
+
+class MappingAnalysisConfig(BaseModel):
+    use_caf_mapping: bool = Field(
+        default=False,
+        description="Deprecated. Prefer memory_augmentation.strategies = ['context_graph']."
+    )
+    mapping_decisions_path: Optional[str] = Field(
+        default=None,
+        description="Deprecated alias for memory_augmentation.context_graph.mapping_decisions_path"
+    )
+    save_path: str = Field(
+        default="",
+        description="Deprecated. Mapping analysis stage output is superseded by memory_augmentation output."
+    )
+
+
+class MemoryAugmentationConfig(BaseModel):
+    enabled: bool = Field(default=False, description="Whether to run memory augmentation as a dedicated stage")
+    save_path: str = Field(default=str(WORKSPACE_ROOT / "memory_augmentation"), description="The save path of the memory augmentation result")
+    strategies: List[str] = Field(default_factory=list, description="Ordered strategy names, e.g. ['historical_qa', 'context_graph']")
+    use_in_generation: bool = Field(default=True, description="Whether memory should be used in SQL generation prompts")
+    use_in_revision: bool = Field(default=True, description="Whether memory should be used in SQL revision prompts")
+    use_in_selection: bool = Field(default=True, description="Whether memory should be used in SQL selection prompts")
+    historical_qa: Dict[str, Any] = Field(default_factory=dict, description="Strategy-specific config for historical QA retrieval")
+    context_graph: Dict[str, Any] = Field(default_factory=dict, description="Strategy-specific config for context graph based augmentation")
+    amem_retrieval: Dict[str, Any] = Field(default_factory=dict, description="Strategy-specific config for loading pre-retrieved A-mem notes")
+
 
 class SQLGenerationConfig(BaseModel):
     llm: LLMConfig = Field(..., description="The llm config, used to generate sql")
@@ -116,6 +155,8 @@ class AppConfig(BaseModel):
     value_retrieval: ValueRetrievalConfig = Field(default_factory=ValueRetrievalConfig, description="The config of the value retrieval")
     augmented_data_retrieval: AugmentedDataRetrievalConfig = Field(default_factory=AugmentedDataRetrievalConfig, description="The config of the augmented data retrieval")
     schema_linking: SchemaLinkingConfig = Field(default_factory=SchemaLinkingConfig, description="The config of the schema linking")
+    mapping_analysis: MappingAnalysisConfig = Field(default_factory=MappingAnalysisConfig, description="The config of the mapping analysis step (use_caf_mapping)")
+    memory_augmentation: MemoryAugmentationConfig = Field(default_factory=MemoryAugmentationConfig, description="The config of the memory augmentation stage")
     sql_generation: SQLGenerationConfig = Field(default_factory=SQLGenerationConfig, description="The config of the sql generation")
     sql_revision: SQLRevisionConfig = Field(default_factory=SQLRevisionConfig, description="The config of the sql revision")
     sql_selection: SQLSelectionConfig = Field(default_factory=SQLSelectionConfig, description="The config of the sql selection")
@@ -125,6 +166,7 @@ class Config:
     _app_config: AppConfig = None
     _instance = None
     _lock = threading.Lock()
+    _config_path: Path = None
     
     def __new__(cls):
         if cls._instance is None:
@@ -137,18 +179,28 @@ class Config:
         self._initialize_config()
 
     @staticmethod
-    def _get_config_path():
-        config_path = PROJECT_ROOT / "config" / "config.toml"
+    def _resolve_config_path(config_path: str | Path | None = None) -> Path:
+        raw_path = config_path or os.environ.get(CONFIG_PATH_ENV_VAR) or (PROJECT_ROOT / "config" / "config.toml")
+        config_path = Path(raw_path)
+        if not config_path.is_absolute():
+            config_path = PROJECT_ROOT / config_path
+        config_path = config_path.resolve()
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found at {config_path}")
         return config_path
+
+    @staticmethod
+    def _get_config_path():
+        return Config._resolve_config_path()
     
     @staticmethod
     def _load_config():
-        with open(Config._get_config_path(), "rb") as f:
+        config_path = Config._get_config_path()
+        with open(config_path, "rb") as f:
             return tomllib.load(f)
 
     def _initialize_config(self):
+        self._config_path = self._get_config_path()
         config = Config._load_config()
         
         # llm config
@@ -173,6 +225,7 @@ class Config:
             "root_path": dataset_config.get("root_path"),
             "save_path": dataset_config.get("save_path", str(WORKSPACE_ROOT / "dataset" / f"{dataset_config.get('type')}" / f"{dataset_config.get('split')}.pkl")),
             "database_whitelist": dataset_config.get("database_whitelist"),
+            "question_id_whitelist": dataset_config.get("question_id_whitelist"),
             "use_database_description": dataset_config.get("use_database_description", True),
         }
         
@@ -184,6 +237,7 @@ class Config:
             "use_qwen3_embedding": vector_database_config.get("use_qwen3_embedding", False),
             "local_files_only": vector_database_config.get("local_files_only", False),
             "normalize_embeddings": vector_database_config.get("normalize_embeddings", False),
+            "device": vector_database_config.get("device", "cpu"),
             "base_url": vector_database_config.get("base_url", None),
             "api_key": vector_database_config.get("api_key", None),
         }
@@ -204,6 +258,7 @@ class Config:
             "save_path": augmented_data_retrieval_config.get("save_path", str(WORKSPACE_ROOT / "augmented_data_retrieval")),
             "semantic_search_limit": augmented_data_retrieval_config.get("semantic_search_limit", 20),
             "guidance_top_k": augmented_data_retrieval_config.get("guidance_top_k", 5),
+            "use_augmented_data": augmented_data_retrieval_config.get("use_augmented_data", False),
         }
         
         # schema linking config
@@ -215,6 +270,47 @@ class Config:
             "direct_linking_sampling_budget": schema_linking_config.get("direct_linking_sampling_budget", 5),
             "reversed_linking_sampling_budget": schema_linking_config.get("reversed_linking_sampling_budget", 5),
             "value_distance_threshold": schema_linking_config.get("value_distance_threshold", 0.05),
+        }
+        schema_linking_settings["use_caf_metadata"] = schema_linking_config.get("use_caf_metadata", False)
+
+        # mapping analysis config
+        mapping_analysis_config = config.get("mapping_analysis", {})
+        mapping_analysis_settings = {
+            "use_caf_mapping": mapping_analysis_config.get("use_caf_mapping", False),
+            "mapping_decisions_path": mapping_analysis_config.get("mapping_decisions_path"),
+            "save_path": mapping_analysis_config.get(
+                "save_path",
+                str(WORKSPACE_ROOT / "mapping_analysis"),
+            ),
+        }
+
+        # memory augmentation config
+        memory_augmentation_config = config.get("memory_augmentation", {})
+        memory_augmentation_strategies = list(memory_augmentation_config.get("strategies", []))
+        memory_context_graph_config = deepcopy(memory_augmentation_config.get("context_graph", {}))
+
+        # Backward compatibility:
+        # - mapping_analysis.use_caf_mapping => enable context_graph strategy in memory augmentation
+        # - mapping_analysis.mapping_decisions_path => context_graph.mapping_decisions_path
+        if mapping_analysis_settings["use_caf_mapping"]:
+            if "context_graph" not in memory_augmentation_strategies:
+                memory_augmentation_strategies.append("context_graph")
+        if (
+            mapping_analysis_settings["mapping_decisions_path"]
+            and "mapping_decisions_path" not in memory_context_graph_config
+        ):
+            memory_context_graph_config["mapping_decisions_path"] = mapping_analysis_settings["mapping_decisions_path"]
+
+        memory_augmentation_settings = {
+            "enabled": memory_augmentation_config.get("enabled", False) or mapping_analysis_settings["use_caf_mapping"],
+            "save_path": memory_augmentation_config.get("save_path", str(WORKSPACE_ROOT / "memory_augmentation")),
+            "strategies": memory_augmentation_strategies,
+            "use_in_generation": memory_augmentation_config.get("use_in_generation", True),
+            "use_in_revision": memory_augmentation_config.get("use_in_revision", True),
+            "use_in_selection": memory_augmentation_config.get("use_in_selection", True),
+            "historical_qa": memory_augmentation_config.get("historical_qa", {}),
+            "context_graph": memory_context_graph_config,
+            "amem_retrieval": memory_augmentation_config.get("amem_retrieval", {}),
         }
         
         # sql generation config
@@ -255,6 +351,8 @@ class Config:
             value_retrieval=ValueRetrievalConfig(**value_retrieval_settings),
             augmented_data_retrieval=AugmentedDataRetrievalConfig(**augmented_data_retrieval_settings),
             schema_linking=SchemaLinkingConfig(**schema_linking_settings),
+            mapping_analysis=MappingAnalysisConfig(**mapping_analysis_settings),
+            memory_augmentation=MemoryAugmentationConfig(**memory_augmentation_settings),
             sql_generation=SQLGenerationConfig(**sql_generation_settings),
             sql_revision=SQLRevisionConfig(**sql_revision_settings),
             sql_selection=SQLSelectionConfig(**sql_selection_settings)
@@ -263,6 +361,10 @@ class Config:
     @property
     def app_config(self):
         return self._app_config
+
+    @property
+    def config_path(self) -> Path:
+        return self._config_path
     
     @property
     def dataset_config(self):
@@ -283,6 +385,14 @@ class Config:
     @property
     def schema_linking_config(self):
         return self._app_config.schema_linking
+
+    @property
+    def mapping_analysis_config(self):
+        return self._app_config.mapping_analysis
+
+    @property
+    def memory_augmentation_config(self):
+        return self._app_config.memory_augmentation
 
     @property
     def sql_generation_config(self):

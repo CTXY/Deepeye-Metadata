@@ -20,6 +20,18 @@ class ReversedLinker(BaseSchemaLinker):
         few_shot_examples_path = config.sql_generation_config.icl_few_shot_examples_path
         with open(few_shot_examples_path, "r") as f:
             self._few_shot_examples = json.load(f)
+
+    @staticmethod
+    def _record_parse_failure(data_item: DataItem, response: str) -> None:
+        debug_info = getattr(data_item, "schema_linking_debug", None)
+        if debug_info is None:
+            debug_info = {}
+            setattr(data_item, "schema_linking_debug", debug_info)
+        reversed_debug = debug_info.setdefault("reversed_linking", {})
+        reversed_debug["parse_failure_count"] = int(reversed_debug.get("parse_failure_count", 0)) + 1
+        samples = reversed_debug.setdefault("parse_failure_samples", [])
+        if len(samples) < 5:
+            samples.append(response)
     
     def link(
         self, 
@@ -54,9 +66,12 @@ class ReversedLinker(BaseSchemaLinker):
                     if parsed_sql_candidate:
                         sql_candidates.append(parsed_sql_candidate)  # Save the SQL
                         all_selections.append(self._extract_tables_and_columns(parsed_sql_candidate, data_item.database_schema_after_value_retrieval))
+                    else:
+                        self._record_parse_failure(data_item, response)
                 except Exception as e:
                     logger.error(f"Error parsing LLM response: {e}")
                     logger.debug(f"Response content: {response}")
+                    self._record_parse_failure(data_item, response)
                     continue
             total_token_usage["prompt_tokens"] += token_usage["prompt_tokens"]
             total_token_usage["completion_tokens"] += token_usage["completion_tokens"]
@@ -64,7 +79,10 @@ class ReversedLinker(BaseSchemaLinker):
         return merge_schema_linking_results(all_selections), total_token_usage, sql_candidates
     
     def _parse_llm_response(self, response: str) -> Optional[Dict[str, List[str]]]:
-        # restore the stop token: </result>
+        # Normalize: some API providers include the stop token in the response,
+        # others don't. Strip it if present, then re-append so the regex always works.
+        if response.endswith("</result>"):
+            response = response[:-len("</result>")]
         response += "</result>"
         
         # fix some common format errors

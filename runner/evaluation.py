@@ -1,5 +1,9 @@
 import sys
 sys.path.append(".")
+from runner._config_cli import configure_from_cli
+
+configure_from_cli()
+
 from app.config import config
 from app.db_utils import execute_sql, SQLExecutionResult
 from app.dataset import load_dataset

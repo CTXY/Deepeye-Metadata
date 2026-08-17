@@ -1,20 +1,17 @@
-import token
-from tenacity import retry
 from app.dataset import BaseDataset, load_dataset, save_dataset, DataItem
 from app.llm import LLM
 from app.logger import logger
 from app.prompt import PromptFactory
-from app.db_utils import execute_sql, get_database_schema_profile, measure_execution_time
+from app.db_utils import execute_sql, measure_execution_time
 from .utils import geometric_median
 from typing import Dict, List, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from app.config import config
 import numpy as np
-import re
-import json
 from collections import Counter
 from tqdm import tqdm
 import time
+import re
 
 
 class BRSelectionRunner:
@@ -32,7 +29,10 @@ class BRSelectionRunner:
         """
         Parse the llm response and return the eval scores.
         """
-        # restore the stop token: </result>
+        # Normalize: some API providers include the stop token in the response,
+        # others don't. Strip it if present, then re-append so the regex always works.
+        if response.endswith("</result>"):
+            response = response[:-len("</result>")]
         response += "</result>"
         
         try:
@@ -107,16 +107,22 @@ class BRSelectionRunner:
         votes = []
         total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
-        # Get enhanced database schema profile (includes schema_metadata and join_relationships)
-        database_schema_profile = PromptFactory.get_enhanced_database_schema_profile(data_item)
-        # Get SQL guidance (low confidence reference material from historical patterns)
-        sql_guidance = PromptFactory.get_sql_guidance(data_item)
-        
+        use_memory = PromptFactory.should_use_memory("selection")
+        use_caf_mapping = PromptFactory.should_use_context_graph("selection")
+        database_schema_profile = PromptFactory.get_enhanced_database_schema_profile(
+            data_item,
+            use_caf_mapping=use_caf_mapping,
+            use_memory=use_memory,
+        )
+        hint = PromptFactory.get_sql_generation_hint(
+            data_item,
+            use_caf_mapping=use_caf_mapping,
+            use_memory=use_memory,
+        )
         prompt = PromptFactory.format_br_pair_selection_prompt(
             database_schema_profile, 
             data_item.question, 
-            data_item.evidence, 
-            sql_guidance,
+            hint, 
             sql_a, 
             execution_result_table_str_a, 
             sql_b, 

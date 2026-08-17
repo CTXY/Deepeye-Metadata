@@ -4,16 +4,19 @@ Script to calculate EX Accuracy for DeepEye-SQL result JSON files.
 
 Usage:
     python script/calculate_ex_accuracy.py <result_json_path> [--dataset-path DATASET_PATH] [--n-parallel N]
+    python script/calculate_ex_accuracy.py <result_json_path> --question-id-ranges 44-88 435-529
 
 Example:
-    python script/calculate_ex_accuracy.py /home/yangchenyu/DeepEye-SQL-Metadata/workspace/sql_selection/bird/sub_dev.json
-"""
+    python script/calculate_ex_accuracy.py /home/yangchenyu/DeepEye-SQL/workspace/sql_selection/cleaned-mini-bird/school_and_card_latter50_context_graph_wo_user.json --question-id-ranges 435-530
+    python script/calculate_ex_accuracy.py /home/yangchenyu/DeepEye-SQL-Metadata/results/bird-dev/qwen3-coder-30b-a3b.json --question-id-ranges 435-530 142-194 624-716
+    python script/calculate_ex_accuracy.py workspace/sql_selection/bird/school_and_card_latter50_context_graph.json --question-id-ranges 44-88 435-530
+""" 
 
 import sys
 import json
 import argparse
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import numpy as np
@@ -24,6 +27,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.db_utils.execution import execute_sql
 from app.dataset.dataset import DatasetFactory
 from app.config import DatasetConfig
+
+
+def _parse_question_id_ranges(ranges: list[str]) -> Set[int]:
+    """
+    Parse question ID ranges like "44-88" or "435-529" into a set of integers (inclusive).
+    Single numbers like "100" are also supported.
+    """
+    ids = set()
+    for s in ranges:
+        s = s.strip()
+        if "-" in s:
+            parts = s.split("-", 1)
+            low, high = int(parts[0].strip()), int(parts[1].strip())
+            ids.update(range(low, high + 1))
+        else:
+            ids.add(int(s))
+    return ids
 
 
 def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Optional[int]:
@@ -56,7 +76,8 @@ def _eval_ex_after_selection(pred_sql: str, gold_sql: str, db_path: str) -> Opti
 def calculate_ex_accuracy(
     result_json_path: str,
     dataset_root_path: Optional[str] = None,
-    n_parallel: int = 16
+    n_parallel: int = 16,
+    question_id_filter: Optional[Set[int]] = None
 ) -> Dict[str, float]:
     """
     Calculate EX Accuracy for a result JSON file.
@@ -66,6 +87,8 @@ def calculate_ex_accuracy(
                          Format: {"question_id": "sql_query", ...}
         dataset_root_path: Root path of the BIRD dataset. If None, uses default path.
         n_parallel: Number of parallel workers for evaluation
+        question_id_filter: If set, only evaluate and report EX for these question IDs.
+                            Ranges like 44-88, 435-529 can be parsed via _parse_question_id_ranges.
         
     Returns:
         Dictionary containing accuracy metrics
@@ -100,6 +123,7 @@ def calculate_ex_accuracy(
     # Prepare evaluation tasks
     evaluation_tasks = []
     missing_questions = []
+    parsed_result_ids = []
     
     for question_id_str, pred_sql in result_data.items():
         try:
@@ -107,9 +131,13 @@ def calculate_ex_accuracy(
         except ValueError:
             print(f"Warning: Invalid question_id '{question_id_str}', skipping...")
             continue
+        parsed_result_ids.append(question_id)
         
         if question_id not in dataset_dict:
             missing_questions.append(question_id)
+            continue
+        
+        if question_id_filter is not None and question_id not in question_id_filter:
             continue
         
         data_item = dataset_dict[question_id]
@@ -124,8 +152,25 @@ def calculate_ex_accuracy(
         print(f"Warning: {len(missing_questions)} questions not found in dataset: {missing_questions[:10]}...")
     
     if not evaluation_tasks:
+        if question_id_filter is not None:
+            if parsed_result_ids:
+                min_id = min(parsed_result_ids)
+                max_id = max(parsed_result_ids)
+                overlap = len(set(parsed_result_ids) & question_id_filter)
+                raise ValueError(
+                    "No valid evaluation tasks found! "
+                    "No question_id in result file matches the given --question-id-ranges. "
+                    f"Result file question_id range: [{min_id}, {max_id}], "
+                    f"parsed IDs: {len(parsed_result_ids)}, overlap with filter: {overlap}."
+                )
+            raise ValueError(
+                "No valid evaluation tasks found! "
+                "No parsable question_id found in result file keys."
+            )
         raise ValueError("No valid evaluation tasks found!")
     
+    if question_id_filter is not None:
+        print(f"Filtering to {len(question_id_filter)} question IDs; {len(evaluation_tasks)} present in result file.")
     print(f"Evaluating {len(evaluation_tasks)} SQL queries with {n_parallel} parallel workers...")
     
     # Evaluate in parallel
@@ -205,14 +250,27 @@ def main():
         default=16,
         help='Number of parallel workers for evaluation (default: 16)'
     )
+    parser.add_argument(
+        '--question-id-ranges',
+        type=str,
+        nargs='+',
+        default=None,
+        metavar='RANGE',
+        help='Only compute EX for these question ID ranges (inclusive). E.g.: --question-id-ranges 44-88 435-529'
+    )
     
     args = parser.parse_args()
     
+    question_id_filter = None
+    if args.question_id_ranges is not None:
+        question_id_filter = _parse_question_id_ranges(args.question_id_ranges)
+        print(f"Question ID filter: {len(question_id_filter)} IDs from ranges: {args.question_id_ranges}")
 
     metrics = calculate_ex_accuracy(
         result_json_path=args.result_json_path,
         dataset_root_path=args.dataset_path,
-        n_parallel=args.n_parallel
+        n_parallel=args.n_parallel,
+        question_id_filter=question_id_filter
     )
     
     # Save incorrect SQLs to a file

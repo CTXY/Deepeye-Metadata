@@ -56,7 +56,9 @@ class SQLExecutionThread(threading.Thread):
                 raise TimeoutError(f"SQL execution timed out after {self.timeout} seconds")
         
         try:
-            with sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True) as conn:
+            # `immutable=1` avoids SQLite trying to interact with journal/WAL state for
+            # dataset files that should be treated as read-only artifacts.
+            with sqlite3.connect(f"file:{self.db_path}?mode=ro&immutable=1", uri=True) as conn:
                 conn.text_factory = lambda x: str(x, "utf-8", errors="replace")
                 conn.set_progress_handler(check_timeout, 1000)
                 cursor = conn.cursor()

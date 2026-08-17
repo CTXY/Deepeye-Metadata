@@ -27,25 +27,33 @@ def _is_number_column(column_values: List[str]) -> bool:
     return all(NUMBER_PATTERN.match(value) for value in column_values)
 
 
-def get_embedding_function(model_name_or_path: str, use_qwen3_embedding: bool = False, local_files_only: bool = False, normalize_embeddings: bool = False, base_url: str = None, api_key: str = None):
+def get_embedding_function(
+    model_name_or_path: str,
+    use_qwen3_embedding: bool = False,
+    local_files_only: bool = False,
+    normalize_embeddings: bool = False,
+    base_url: str = None,
+    api_key: str = None,
+    device: str = "cpu",
+):
     if api_key is None:
         if use_qwen3_embedding:
             logger.info(f"Using Qwen3 embedding function for {model_name_or_path}")
             return QwenEmbeddingFunction(
                 model_name=model_name_or_path,
-                device="cuda",
+                device=device,
                 trust_remote_code=True,
                 local_files_only=local_files_only,
-                normalize_embeddings=normalize_embeddings
+                normalize_embeddings=normalize_embeddings,
             )
         else:
             logger.info(f"Using SentenceTransformer embedding function for {model_name_or_path}")
             return SentenceTransformerEmbeddingFunction(
                 model_name=model_name_or_path,
-                device="cuda",
+                device=device,
                 trust_remote_code=True,
                 local_files_only=local_files_only,
-                normalize_embeddings=normalize_embeddings
+                normalize_embeddings=normalize_embeddings,
             )
     else:
         logger.info(f"Using OpenAI embedding function for {model_name_or_path}")
