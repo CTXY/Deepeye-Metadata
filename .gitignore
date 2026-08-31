@@ -39,6 +39,7 @@ __MACOSX/
 Thumbs.db
 
 # Project specific
+.worktrees/
 cache/
 *.log
 *.pkl
@@ -57,4 +58,3 @@ test.log
 # Config files with sensitive data
 config/config.toml
 config/config_2.toml
-
